@@ -22,22 +22,13 @@ import pandas as pd
 from nba_api.stats.endpoints import commonallplayers, leaguegamelog
 from nba_api.stats.static import teams as static_teams
 
+from schema import REQUIRED_COLS
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"
 
 DEFAULT_SEASONS = ["2021-22", "2022-23", "2023-24", "2024-25", "2025-26"]
 SEASON_TYPES = ["Regular Season", "Playoffs"]
-
-BOX_STATS = {
-    "game_id", "game_date", "matchup", "wl", "min", "fgm", "fga", "fg3m", "fg3a",
-    "ftm", "fta", "oreb", "dreb", "reb", "ast", "stl", "blk", "tov", "pf", "pts",
-    "plus_minus", "team_id", "team_abbreviation",
-}
-REQUIRED_COLS = {
-    "player_games": BOX_STATS | {"player_id", "player_name"},
-    "team_games": BOX_STATS | {"team_name"},
-}
-
 
 def fetch_game_log(season, season_type, scope, proxy, retries=4, pause=1.5):
     """scope is 'P' (player box scores) or 'T' (team game logs). Cached in data/raw/."""

@@ -95,10 +95,23 @@ def main():
     if args.limit:
         questions = questions[: args.limit]
 
-    gold = {}
+    gold, skipped = {}, []
     for q in questions:
         if q["gold_sql"].strip():
-            gold[q["id"]] = db.run_sql(q["gold_sql"])[1]
+            try:
+                rows = db.run_sql(q["gold_sql"])[1]
+                if rows:
+                    gold[q["id"]] = rows
+                else:
+                    skipped.append((q["id"], "gold SQL returned 0 rows (player or season not in this data?)"))
+            except ValueError as exc:  # e.g. your dataset lacks a column this question needs
+                skipped.append((q["id"], str(exc).splitlines()[0]))
+    if skipped:
+        print("Skipping questions whose gold SQL does not run on this dataset:")
+        for qid, why in skipped:
+            print(f"  [{qid}] {why}")
+        skip_ids = {qid for qid, _ in skipped}
+        questions = [q for q in questions if q["id"] not in skip_ids]
 
     if args.check_gold:
         for q in questions:

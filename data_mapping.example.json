@@ -1,0 +1,34 @@
+{
+  "season_year_is": "start",
+  "player_games": {
+    "file": "player_box_scores.csv",
+    "rename": {
+      "personId": "player_id",
+      "playerName": "player_name",
+      "teamTricode": "team_abbreviation",
+      "teamName": "team_name",
+      "gameId": "game_id",
+      "gameDate": "game_date",
+      "win": "wl",
+      "minutes": "min",
+      "fieldGoalsMade": "fgm",
+      "fieldGoalsAttempted": "fga",
+      "threePointersMade": "fg3m",
+      "threePointersAttempted": "fg3a",
+      "freeThrowsMade": "ftm",
+      "freeThrowsAttempted": "fta",
+      "reboundsOffensive": "oreb",
+      "reboundsDefensive": "dreb",
+      "reboundsTotal": "reb",
+      "assists": "ast",
+      "steals": "stl",
+      "blocks": "blk",
+      "turnovers": "tov",
+      "foulsPersonal": "pf",
+      "points": "pts",
+      "plusMinusPoints": "plus_minus"
+    },
+    "defaults": {"season_type": "Regular Season"}
+  },
+  "team_games": "derive"
+}

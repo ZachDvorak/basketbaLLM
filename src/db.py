@@ -4,6 +4,8 @@ from pathlib import Path
 
 import duckdb
 
+from schema import STAT_COLS
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 MAX_ROWS = 50          # rows returned to the model per query
 QUERY_TIMEOUT_S = 20   # kill runaway queries
@@ -84,10 +86,23 @@ class NBADatabase:
                 f"CREATE TABLE {table} AS SELECT * FROM read_csv_auto(?, header = true)", [str(path)]
             )
             self.tables.append(table)
+        self._coerce_stat_columns()
         self.con.execute(VIEWS)
         # Lock down AFTER loading: the model's SQL cannot read files or change settings.
         self.con.execute("SET enable_external_access = false")
         self.con.execute("SET lock_configuration = true")
+
+    def _coerce_stat_columns(self):
+        """A stray text value (e.g. 'DNP') makes DuckDB read a whole stat column as VARCHAR, which breaks avg()/sum().
+        Convert such columns to numbers; values that are not numeric become NULL."""
+        for table in ("player_games", "team_games"):
+            types = dict(self.con.execute(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ?", [table]
+            ).fetchall())
+            for column in STAT_COLS:
+                if types.get(column) == "VARCHAR":
+                    self.con.execute(
+                        f"ALTER TABLE {table} ALTER COLUMN {column} SET DATA TYPE DOUBLE USING TRY_CAST({column} AS DOUBLE)")
 
     def run_sql(self, sql):
         """Run one SELECT/WITH statement. Returns (columns, rows, truncated). Raises ValueError on misuse."""

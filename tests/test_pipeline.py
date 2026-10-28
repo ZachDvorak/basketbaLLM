@@ -82,3 +82,20 @@ def test_auto_grade():
     assert not auto_grade([("Luka Dončić", 33.9)], "Luka Dončić led at 31.0 ppg.", False)
     assert auto_grade([], "I don't have salary data.", True)
     assert not auto_grade([], "He earns $48 million.", True)
+
+
+def test_text_in_stat_column_is_coerced_to_numbers(tmp_path):
+    import shutil
+
+    d = make(tmp_path / "d", games_per_team=4)
+    lines = (d / "player_games.csv").read_text().splitlines()
+    header = lines[0].split(",")
+    idx = header.index("pts")
+    row = lines[1].split(",")
+    row[idx] = "DNP"
+    lines[1] = ",".join(row)
+    (d / "player_games.csv").write_text("\n".join(lines))
+    db = NBADatabase(d)
+    assert db.run_sql("SELECT typeof(any_value(pts)), sum(pts) FROM player_games")[1][0][0] == "DOUBLE"
+    db.run_sql("SELECT * FROM player_season LIMIT 1")
+    shutil.rmtree(d)
