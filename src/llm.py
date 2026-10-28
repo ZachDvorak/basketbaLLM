@@ -34,6 +34,12 @@ TOOL_SPECS = [
 ]
 
 
+def gemini_api_key():
+    """GEMINI_API_KEY first (the Colab secret this project sets). google-genai alone prefers GOOGLE_API_KEY when
+    both are set, which can silently pick a different key, so we choose explicitly."""
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
+
 def with_retry(call, attempts=5):
     """Retry rate limits (429) and transient server errors (5xx) with exponential backoff.
     Free tiers hit 429 often, so this matters most for Gemini."""
@@ -106,7 +112,7 @@ class GeminiBackend:
         from google import genai
 
         self.model = model or DEFAULT_MODELS["gemini"]
-        self.client = genai.Client()  # reads GEMINI_API_KEY or GOOGLE_API_KEY
+        self.client = genai.Client(api_key=gemini_api_key())
 
     def run(self, system, question, tools, max_steps=MAX_TOOL_STEPS):
         from google.genai import types
