@@ -210,6 +210,10 @@ python src/build_app.py --provider gemini --feedback "make the answer card large
 python src/build_app.py --provider gemini --feedback "<paste the error you got>"
 ```
 
+**Automatic fixes.** If the model's reply is not valid Python, it is sent back to the model to correct (the existing
+file is never overwritten by a broken reply). Small models such as the `-mini` ones sometimes fail on long files;
+try `--model` with a larger model from `list_models.py`.
+
 **Automatic test launch.** After the model writes the file, `build_app.py` starts the app with a stand-in agent
 (no API calls). If it fails, for example because the model used an argument name from an older Gradio, the error is
 sent back to the model to fix, up to `--max-fixes` times (default 2). Use `--no-verify` to skip it. This is why a

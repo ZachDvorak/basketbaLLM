@@ -143,42 +143,49 @@ def main():
     backend = make_backend(args.provider, args.model)
     print(f"Asking {backend.name}/{backend.model} to {'revise' if previous else 'write'} the interface...")
     brief, baseline = BRIEF.read_text(), BASELINE.read_text()
-    code, problem, raw = generate(backend, build_prompt(brief, baseline, previous, args.feedback))
-    if code is None:
-        raw_path = out.with_suffix(".raw.txt")
-        raw_path.write_text(raw)
-        sys.exit(f"The model's reply was not usable: {problem}. Raw reply saved to {raw_path}. Run it again.")
-
-    out.write_text(code)
-    print(f"Saved {out} ({len(code.splitlines())} lines).")
-    verified = args.no_verify
-    for attempt in range(0 if args.no_verify else args.max_fixes + 1):
+    prompt = build_prompt(brief, baseline, previous, args.feedback)
+    shown = out.resolve().relative_to(ROOT) if out.resolve().is_relative_to(ROOT) else out
+    code, verified = None, args.no_verify
+    for attempt in range(args.max_fixes + 1):
+        last_try = attempt == args.max_fixes
+        new_code, problem, raw = generate(backend, prompt)
+        if new_code is None:  # unusable reply (no code block, or a syntax error): let the model fix it too
+            print(f"\nThe model's reply was not usable: {problem}.")
+            if last_try:
+                raw_path = out.with_suffix(".raw.txt")
+                raw_path.write_text(raw)
+                kept = f"{shown} was not changed. " if out.exists() else ""
+                sys.exit(f"Still unusable after {args.max_fixes} automatic fixes. {kept}The last raw reply is "
+                         f"saved at {raw_path}. Run this again, or try --model with a stronger model "
+                         "(see src/list_models.py); small models often struggle with long files.")
+            print(f"Sending that back to the model (fix {attempt + 1} of {args.max_fixes})...")
+            prompt = build_prompt(brief, baseline, extract_code(raw) or code or previous,
+                                  f"Your last reply could not be used: {problem}. Return the complete corrected "
+                                  "file in one fenced python code block.")
+            continue
+        code = new_code
+        out.write_text(code)
+        print(f"Saved {out} ({len(code.splitlines())} lines).")
+        if args.no_verify:
+            break
         ok, error = smoke_test(out)
         if ok:
             print("Test launch passed: the app starts without errors.")
             verified = True
             break
         print(f"\nTest launch failed:\n{error}\n")
-        if attempt == args.max_fixes:
+        if last_try:
             break
         print(f"Sending the error back to the model (fix {attempt + 1} of {args.max_fixes})...")
-        fix_prompt = build_prompt(brief, baseline, code,
-                                  "Launching the app failed with the error below. Fix it, using only calls that "
-                                  f"exist in the installed Gradio version, and return the complete file.\n\n{error}")
-        fixed, problem, raw = generate(backend, fix_prompt)
-        if fixed is None:
-            print(f"The model's fix was not usable: {problem}.")
-            break
-        code = fixed
-        out.write_text(code)
-        print(f"Saved the revised {out} ({len(code.splitlines())} lines).")
+        prompt = build_prompt(brief, baseline, code,
+                              "Launching the app failed with the error below. Fix it, using only calls that "
+                              f"exist in the installed Gradio version, and return the complete file.\n\n{error}")
 
     flagged = risky_lines(code)
     if flagged:
         print("\nReview these lines before running (the brief told the model not to use them):")
         for number, line in flagged:
             print(f"  line {number}: {line}")
-    shown = out.resolve().relative_to(ROOT) if out.resolve().is_relative_to(ROOT) else out
     if verified:
         print(f"\nNext: read the file, then run  python {shown}"
               "\nNot happy with how it looks? Run this again with --feedback \"...\".")

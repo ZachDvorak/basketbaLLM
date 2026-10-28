@@ -170,3 +170,51 @@ def test_gives_up_after_max_fixes_and_says_so(gradio_installed, monkeypatch, tmp
         build_app.main()
     assert "still fails to launch" in str(exc.value) and "--feedback" in str(exc.value)
     assert len(backend.prompts) == 2 and out.exists()
+
+
+# ---- unusable replies (syntax errors, no code block) are sent back to the model too ----
+SYNTAX_BROKEN = "```python\nfrom agent import NBAAgent\nx = f'unterminated\n```"
+
+
+class Sequence(FakeBackend):
+    def __init__(self, replies):
+        super().__init__("")
+        self.replies = iter(replies)
+
+    def complete(self, prompt):
+        self.prompts.append(prompt)
+        return next(self.replies)
+
+
+def test_syntax_error_reply_is_sent_back_and_fixed(monkeypatch, tmp_path):
+    out = tmp_path / "gen.py"
+    backend = Sequence([SYNTAX_BROKEN, GOOD])
+    monkeypatch.setattr(build_app, "make_backend", lambda provider, model: backend)
+    monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(out), "--no-verify"])
+    build_app.main()
+    assert len(backend.prompts) == 2
+    assert "syntax error" in backend.prompts[1] and "unterminated" in backend.prompts[1]  # it sees its own code
+    assert out.read_text().startswith("from agent import NBAAgent\nprint")
+
+
+def test_unrecoverable_replies_leave_the_existing_file_untouched(monkeypatch, tmp_path):
+    out = tmp_path / "gen.py"
+    out.write_text("# my previous version\n")
+    backend = FakeBackend(SYNTAX_BROKEN)
+    monkeypatch.setattr(build_app, "make_backend", lambda provider, model: backend)
+    monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(out), "--max-fixes", "1",
+                                      "--no-verify"])
+    with pytest.raises(SystemExit) as exc:
+        build_app.main()
+    assert "not changed" in str(exc.value) and "stronger model" in str(exc.value)
+    assert out.read_text() == "# my previous version\n" and len(backend.prompts) == 2
+    assert out.with_suffix(".raw.txt").exists()
+
+
+def test_syntax_error_then_launch_error_then_success(gradio_installed, monkeypatch, tmp_path):
+    out = tmp_path / "gen.py"
+    backend = Sequence([SYNTAX_BROKEN, fenced(BAD_APP), fenced(GOOD_APP)])
+    monkeypatch.setattr(build_app, "make_backend", lambda provider, model: backend)
+    monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(out), "--max-fixes", "2"])
+    build_app.main()
+    assert len(backend.prompts) == 3 and "_js" not in out.read_text()
