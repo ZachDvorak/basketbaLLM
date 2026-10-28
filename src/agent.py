@@ -1,4 +1,3 @@
-"""The basketball analytics agent: an LLM (OpenAI or Gemini) + two tools (schema lookup, read-only SQL)."""
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
