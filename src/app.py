@@ -14,7 +14,7 @@ def respond(message, history):
 
 gr.ChatInterface(
     respond,
-    title="NBA Analyst Agent",
+    title="The basketbaLLM",
     description=agent.db.coverage(),
     examples=["Who led the league in assists per game in 2024-25?",
               "Compare Jokić and Embiid in 2023-24.",
