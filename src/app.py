@@ -18,5 +18,5 @@ gr.ChatInterface(
     description=agent.db.coverage(),
     examples=["Who led the league in assists per game in 2024-25?",
               "Compare Jokić and Embiid in 2023-24.",
-              "How many 40-point games did Devin Booker have in 2023-24?"],
+              "Who had the best defense in 2023-24?"],
 ).launch(share=True)
