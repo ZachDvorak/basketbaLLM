@@ -1,46 +1,46 @@
-# NBA Analyst Agent
+# NBA History Analyst Agent
 
-A natural-language analytics agent over NBA box-score data. A user asks a basketball question in plain
-English; the agent looks up the schema, writes SQL against CSV-backed tables, checks the result, and answers
-in plain English with the numbers and the filters it used.
+A natural-language analytics agent over Basketball-Reference's season-level NBA, ABA and BAA data (Kaggle:
+`sumitrodatta/nba-aba-baa-stats`). A user asks a basketball question in plain English; the agent looks up the
+schema, writes SQL against the CSV-backed tables, checks the result, and answers in plain English with the numbers
+and the filters it used. It runs on OpenAI or Google Gemini models, in Google Colab.
 
 **Why this project:** it is a small, fully measurable version of the "ask questions of our business data"
-problem. Swap the NBA CSVs for corporate extracts and the same architecture, evaluation method, and failure
-modes apply.
-
----
+problem. Swap these CSVs for corporate extracts and the same architecture, evaluation method, and failure modes
+apply. The dataset even contains the classic traps (duplicate rows from totals, missing-value markers, an
+off-by-one date convention) that corporate data has.
 
 ## Start here: what to do next in Colab
 
-You have a Kaggle dataset (CSV files) in Colab and API keys for OpenAI and Gemini. Do these in order. Each
-step has a "done when" check so you know it worked.
+You have the Kaggle dataset downloaded in Colab and API keys for OpenAI and Gemini. Do these in order. Each step
+has a "done when" check.
 
 | # | Do this | Done when |
 |---|---|---|
-| 1 | Open `notebooks/colab_runner.ipynb` in Colab. Add `OPENAI_API_KEY` and `GEMINI_API_KEY` under **Secrets** (key icon, left sidebar) and switch on notebook access. Run the clone/install cell. | `python src/list_models.py` prints model names for both providers |
-| 2 | Find the folder where the Kaggle files are (look in the Colab file browser; often `/content/...`). Run `python src/inspect_csvs.py <that folder>`. | You can see every CSV, its columns, and 3 sample rows |
-| 3 | Decide which CSV holds **one row per player per game** (box scores). Copy `data_mapping.example.json` to `data_mapping.json` and edit it so each *source column* maps to our *column name* (see section 3). | The file lists your CSV name and renames for every stat |
-| 4 | Run `python src/prepare_data.py --src <folder> --mapping data_mapping.json`. Read every `NOTE:` line it prints. | It prints row counts and writes `data/player_games.csv` and `data/team_games.csv` |
-| 5 | Run `python -m pytest tests -q`, then `python src/evaluate.py --check-gold`. Compare 3–4 gold answers with Basketball-Reference. | Gold answers look right; skipped questions are ones your data cannot answer |
-| 6 | Ask the agent one question by hand with each provider (notebook step 4). | You get an answer plus the SQL it ran |
-| 7 | `python src/evaluate.py --provider openai --limit 5 --judge`, check the cost in the provider dashboard, then run the full set for each provider. | You have `results/eval_*.csv` for both providers |
-| 8 | Read the failures, pick one fix (section 5), rerun. Repeat. Gemma comes after this works. | A before/after accuracy table |
+| 1 | Open `notebooks/colab_runner.ipynb` in Colab. Add `OPENAI_API_KEY` and `GEMINI_API_KEY` under **Secrets** (key icon, left sidebar) and switch on notebook access for each. Run the clone/install cell. | `python src/list_models.py` prints model names for both providers |
+| 2 | Find the folder with the Kaggle CSVs (Colab file browser). Put its path in `DATA_DIR` in the notebook, or set `NBA_DATA_DIR`. | `python src/inspect_csvs.py <folder>` shows `[ok]` for all 12 expected files |
+| 3 | Run `python src/check_data.py <folder>`. | All sanity checks say `[ok]`, and the top scorers match Basketball-Reference |
+| 4 | Run `python -m pytest tests -q`, then `python src/evaluate.py --data-dir <folder> --check-gold`. Compare 3–4 gold answers with Basketball-Reference. | Tests pass; gold answers look right |
+| 5 | Ask the agent one question by hand with each provider (notebook step 4). | You get an answer plus the SQL it ran |
+| 6 | `python src/evaluate.py --provider openai --limit 5 --judge`, check the cost in the provider dashboard, then run the full set for each provider. | You have `results/eval_*.csv` for both providers |
+| 7 | Read the failures, pick one fix (section 5), rerun. Repeat. Gemma comes after this works. | A before/after accuracy table |
 
-**About SQL in Colab:** you do not need a database. DuckDB is the SQL engine here: it installs with one
-`pip install` (already in `requirements.txt`), runs inside the notebook, and queries your CSV files directly.
-Your data stays as CSVs.
+**About SQL in Colab:** you do not need a database. DuckDB is the SQL engine: it installs with one `pip install`
+(already in `requirements.txt`), runs inside the notebook, and queries your CSV files directly. Your data stays CSV.
 
-If step 2 or 3 gets confusing, paste the output of `inspect_csvs.py` to your helper and ask for the mapping file.
+If a file or column is missing, `check_data.py` says exactly which one. If your Kaggle copy is a newer version of
+the dataset and a file or column was renamed, edit `src/schema.py` and the views at the top of `src/db.py`.
 
 ## 1. Goals and non-goals
 
 **Goals**
 1. Answer factual and analytical basketball questions correctly from data, with no invented statistics.
-2. Say "the data can't answer that" when it can't (salaries, injuries, seasons outside the data).
+2. Say "the data can't answer that" when it can't (game logs, playoff player stats, salaries, predictions).
 3. Measure accuracy with a fixed test set, then improve it and show the before/after.
-4. Document what transfers to a business setting.
+4. Compare OpenAI and Gemini models on accuracy, cost and speed.
+5. Document what transfers to a business setting.
 
-**Non-goals**: training an LLM from scratch, live scores, predictions, play-by-play or tracking analysis.
+**Non-goals**: training an LLM from scratch (a Gemma comparison comes later), live scores, predictions.
 
 **Design principle:** the model never *remembers* statistics. It *finds* them. Numbers come only from query
 results, which is what makes the answers checkable.
@@ -56,100 +56,70 @@ results, which is what makes the answers checkable.
  | (OpenAI   |   run_sql(sql)    | schema                   |
  | or Gemini)| ----------------> +--------------------------+
  |           | <---------------- DuckDB (in-memory, read-only)
- +-----------+   rows as CSV      tables loaded from data/*.csv
-      |                           views: player_season, team_season
+ +-----------+   rows as CSV      12 Kaggle CSVs -> clean views
+      |
       v
  plain-English answer + filters used
 ```
 
 | Piece | File | Job |
 |---|---|---|
-| Data prep | `src/inspect_csvs.py`, `src/prepare_data.py`, `data_mapping.example.json` | Look inside a Kaggle dataset, then convert it into the two tables the agent needs |
-| Data pull (alternative) | `src/pull_data.py` | Downloads box scores via `nba_api` instead of Kaggle (often blocked in Colab) |
-| Database | `src/db.py` | Loads CSVs into DuckDB, defines season views, guards SQL |
+| Data layer | `src/db.py`, `src/schema.py` | Loads the CSVs into DuckDB, defines the clean views, guards SQL |
+| Data checks | `src/check_data.py`, `src/inspect_csvs.py` | Confirm the files and views work; look inside the CSVs |
 | Agent | `src/agent.py` | System prompt, two tools, and the question-to-answer flow |
 | LLM layer | `src/llm.py` | One tool-calling loop each for OpenAI (Responses API) and Gemini (`google-genai`), with retry on rate limits |
-| Eval | `src/evaluate.py`, `eval/questions.csv` | 32 questions with gold SQL; automatic + LLM-judge grading |
-| UI | `src/app.py` | Optional Gradio chat |
 | Models | `src/list_models.py` | Lists the models your API keys can use |
-| Docs | `docs/data_dictionary.md` | Column meanings and query gotchas; the agent reads this |
-| Tests | `tests/` | Offline tests on fake data (pipeline, SQL guard, gold SQL, grader) |
+| Eval | `src/evaluate.py`, `eval/questions.csv` | 42 questions with gold SQL; automatic + LLM-judge grading |
+| UI | `src/app.py` | Optional Gradio chat |
+| Docs | `docs/data_dictionary.md` | Column meanings and conventions; the agent reads this |
+| Tests | `tests/` | Offline tests on a tiny fake dataset (views, SQL guard, loaders, grader, provider loops) |
 
-**Why DuckDB and not SQLite:** DuckDB reads CSVs directly, needs no database server or file, and runs in
-Colab with one `pip install`. The data stays CSV; SQL is just the query language.
+**Why DuckDB:** it reads CSVs directly, needs no database server, and runs in Colab with one `pip install`.
 
-**Why views:** `player_season` and `team_season` pre-compute per-game averages, shooting percentages, true
-shooting, wins, and opponent points. Without them the model re-derives these every time, and that is where
-most wrong answers come from. It is the same reason business teams build a semantic layer.
+**Why views:** the raw Kaggle files have quirks a model would trip over on every question. The views fix them once
+(see section 3): friendly column names, `NA` text turned into real nulls, traded players de-duplicated, and
+per-game, totals and advanced stats joined into one table. It is the same reason business teams build a semantic layer.
 
 **Safety guards (`db.py`):** one statement only, `SELECT` only, external file access disabled after load,
 configuration locked, 20 second timeout, 50-row result cap.
 
 ## 3. Data
 
-The agent needs two tables, both **one row per game**:
+Dataset: Kaggle `sumitrodatta/nba-aba-baa-stats`, scraped from Basketball-Reference. Check the dataset's license and
+Basketball-Reference's terms before sharing anything beyond this class project.
 
-| File | Grain | Needed for |
+**It is season-level, not game-level.** There is one row per player per season (and per team per season), covering
+1947 through 2026 including the BAA and ABA. There are no individual box scores, so questions like "how many 40-point
+games did he have" are deliberately in the eval as questions the agent must decline.
+
+| Raw file | Becomes |
+|---|---|
+| Player Per Game, Player Totals, Advanced | `player_season`, `player_season_team` (stats, totals and PER/WS/BPM/VORP in one row) |
+| Team Summaries, Team Stats Per Game, Opponent Stats Per Game | `team_season`, `league_season` |
+| Player Award Shares | `awards` (MVP, ROY, DPOY, MIP, 6MOY, Clutch POY) |
+| All-Star Selections | `all_star` |
+| End of Season Teams | `all_league_teams` (All-NBA, All-Defense, All-Rookie) |
+| Draft Pick History | `draft` |
+| Player Career Info | `players` (height, weight, birth date, college, Hall of Fame) |
+| Team Abbrev | `team_abbrev` |
+
+The dataset also has Per 36, Per 100 Possessions, Shooting, Play-By-Play and other files. They are not loaded yet;
+they are good stretch extensions (add the file to `src/schema.py`, a view to `src/db.py`, and a line to the dictionary).
+
+Full column list: [`docs/data_dictionary.md`](docs/data_dictionary.md).
+
+### Data traps the views handle (and the agent is told about)
+These are the kind of issue that makes an AI agent confidently wrong, so they are worth explaining in your write-up.
+
+| Trap | What goes wrong | Fix |
 |---|---|---|
-| `data/player_games.csv` | player x game (box scores) | player stats, leaderboards, game-level questions |
-| `data/team_games.csv` | team x game | team records, points allowed. Can be derived from player rows |
-
-Full column list and meanings: [`docs/data_dictionary.md`](docs/data_dictionary.md).
-
-### Using your Kaggle dataset
-
-Kaggle datasets all name their columns differently, so there is a one-time conversion step.
-
-**Step A. Inspect.** `python src/inspect_csvs.py /path/to/kaggle/folder` shows each CSV's columns and sample rows.
-Find the file with one row per player per game.
-
-**Step B. Write the mapping.** Copy `data_mapping.example.json` to `data_mapping.json`. The example uses made-up
-source column names; replace the left side of each pair with your dataset's real column names:
-
-```json
-{
-  "season_year_is": "start",
-  "player_games": {
-    "file": "your_box_scores.csv",
-    "rename": { "<your column>": "<our column>", "PLAYER_NAME": "player_name", "PTS": "pts" },
-    "defaults": { "season_type": "Regular Season" }
-  },
-  "team_games": "derive"
-}
-```
-
-Our column names that **must** exist after mapping (the agent's views cannot work without them):
-`season, season_type, player_id, player_name, team_abbreviation, game_id, game_date, wl, min, fgm, fga, fg3m, fg3a,
-ftm, fta, reb, ast, stl, blk, tov, pts`.
-Nice to have (filled with empty values if missing, and the script tells you): `oreb, dreb, pf, plus_minus, matchup,
-team_id, team_name`.
-
-What the script fixes for you: dates become `YYYY-MM-DD`; `season` is derived from the date if there is no season
-column; minutes like `35:12` become numbers; win flags (`1/0/True/False`) become `W`/`L`; `reb` is computed from
-`oreb + dreb` if missing. Use `"season_year_is": "end"` if the dataset labels a season by the year it ends.
-Use `defaults` for constants, such as `season_type` when the file only has regular season games. If the dataset has
-a real team game file, give it its own block instead of `"derive"`.
-
-**Step C. Convert and check.**
-```bash
-python src/prepare_data.py --src /path/to/kaggle/folder --mapping data_mapping.json
-python src/evaluate.py --check-gold
-```
-Read the `NOTE:` lines. Typical ones: no `matchup` column (the home/away question will be skipped), no `team_name`
-(questions that use full team names such as "Celtics" will be skipped), games without exactly two team rows
-(opponent points will be off for those games). `evaluate.py` automatically skips questions whose gold SQL cannot run
-on your data or returns no rows (for example a player or season that is not in your dataset), and tells you which.
-
-**Edit the eval for your data.** The sample questions use 2021-22 through 2025-26 and well-known players. If your
-dataset covers different seasons, open `eval/questions.csv` and change the seasons and names so most questions apply.
-Also update the coverage statement in your write-up: which seasons, whether playoffs are included, and any
-missing stats. Check the dataset's license on Kaggle before sharing it.
-
-### Alternative: download from the NBA directly
-
-`python src/pull_data.py` uses [`nba_api`](https://github.com/swar/nba_api) to fetch `stats.nba.com`. It often
-times out from cloud IPs like Colab, so if you use it, run it on your laptop and upload the `data/` folder.
-Options: `--seasons 2023-24 2024-25`, `--proxy <url>`. Downloads are cached in `data/raw/` and resume after a failure.
+| `season` is the year the season **ends** | "2023-24" is stored as `2024`; asking for 2023 returns the wrong year | `season_label` column; prompt tells the agent the convention |
+| Traded players have a combined row (`2TM`) **plus** a row per team | Leaderboards list a player twice; career sums double count | `player_season` keeps one row per player per season |
+| Missing values are the text `NA` | Number columns load as text and break averages | Loader reads `NA` as null |
+| Nulls mean "not recorded in that era" | Blocks before 1973-74 treated as zero | Dictionary and prompt say null is not zero |
+| `playoffs` in the team tables means "made the playoffs" | Mistaken for playoff statistics | Renamed `made_playoffs` |
+| A "League Average" pseudo-team row | Shows up as a team in rankings | Split into `league_season` |
+| Rounded values tie | The career points-per-game leader ties at 30.1 (Jordan 30.12 vs Chamberlain 30.07) | Prompt says do not round before sorting |
 
 ## 4. Setup (Colab)
 
@@ -157,7 +127,7 @@ Options: `--seasons 2023-24 2024-25`, `--proxy <url>`. Downloads are cached in `
 2. Add `OPENAI_API_KEY` and `GEMINI_API_KEY` under Colab **Secrets** and enable notebook access for each.
 3. Run `python src/list_models.py` and set `--model` (or `NBA_OPENAI_MODEL` / `NBA_GEMINI_MODEL`) to models your
    keys can actually use. The defaults in `src/llm.py` are only starting points.
-4. Do the data steps in "Start here" (inspect, map, prepare), then the checks and evaluation.
+4. Set the folder with your Kaggle CSVs (`DATA_DIR` in the notebook, or `NBA_DATA_DIR`), then follow the checklist above.
 
 Locally:
 
@@ -165,50 +135,51 @@ Locally:
 pip install -r requirements.txt
 export OPENAI_API_KEY=...
 export GEMINI_API_KEY=...
+export NBA_DATA_DIR=/path/to/kaggle/folder
 python src/list_models.py
-python src/inspect_csvs.py /path/to/kaggle/folder
-python src/prepare_data.py --src /path/to/kaggle/folder --mapping data_mapping.json
+python src/check_data.py
 python -m pytest tests -q
 NBA_PROVIDER=gemini python src/agent.py "Who led the league in assists per game in 2024-25?"
 python src/evaluate.py --provider openai --judge
 ```
 
+To download the dataset yourself in Colab: `import kagglehub; kagglehub.dataset_download("sumitrodatta/nba-aba-baa-stats")`
+(needs a Kaggle login in Colab). The loader finds the CSVs in any subfolder.
+
 ## 5. Evaluation
 
-`eval/questions.csv` has 32 questions in 8 categories: lookup, leaderboard, team, comparison, trend,
-game-level, playoffs, derived, and **unanswerable** (the agent must decline, not invent).
-Each answerable question has a gold SQL query. The harness runs the gold SQL against your real data, so the
-expected answers stay correct whichever seasons you pull.
+`eval/questions.csv` has 42 questions in 10 categories: lookup, leaderboard, career, comparison, team, awards,
+history, advanced, and **unanswerable** (the agent must decline, not invent). Each answerable question has a gold SQL
+query, and the harness runs it against your data, so the expected answers always come from the same files the agent
+uses. The gold answers were checked against known facts (Luka Dončić 33.9 ppg in 2023-24, Curry's 402 threes in
+2015-16, the 73-9 Warriors, Kareem's six MVPs, and so on).
 
 Two graders:
 - **auto**: every value in the gold result must appear in the answer (numbers within rounding).
-- **judge** (`--judge`): a model compares the answer with the gold result. More forgiving of phrasing. By default the judge is the *other* provider than the agent, to avoid a model favoring its own family.
+- **judge** (`--judge`): a model compares the answer with the gold result. More forgiving of phrasing. By default the
+  judge is the *other* provider than the agent, to avoid a model favoring its own family.
 
-Both have blind spots, so read a sample of failures by hand. Failures are recorded in `results/eval_*.csv`
-with the queries the agent ran, so you can tag each as: wrong column, bad join, missing filter, misread
-question, hallucinated number, or grader error.
+Both have blind spots, so read a sample of failures by hand. Failures are recorded in `results/eval_*.csv` with the
+queries the agent ran, so you can tag each as: wrong column, bad join, missing filter, season off by one, double
+counted trade, misread question, hallucinated number, or grader error.
 
 **Experiments that make a good write-up** (change one thing at a time, rerun the full set):
-1. Baseline: no `get_schema` description, no views (query raw tables only).
-2. Add the data dictionary and views (the current design).
+1. Baseline: no data dictionary and no views (let the agent query the raw CSV tables). This shows what the views buy you.
+2. Add the dictionary and views (the current design).
 3. Add 5–10 worked question-to-SQL examples to the system prompt.
 4. Model comparison: OpenAI vs Gemini, and a small vs larger model from each (`--provider`, `--model`); plot accuracy vs cost and latency.
-5. Expand the question set with your own questions, especially the ones you tried that failed.
+5. Expand the question set with your own questions, especially ones the agent got wrong.
 
-Report accuracy overall and per category, and the failure-type breakdown. A statement like "view and
-dictionary changes moved accuracy from X% to Y% and removed most wrong-column errors" is the result worth presenting.
-
-> The gold SQL for each question was checked for validity against the schema on synthetic data. It has **not**
-> yet been checked against real NBA data. After preparing your data, run `python src/evaluate.py --check-gold` and
-> sanity check a few results against Basketball-Reference before trusting any score.
+Report accuracy overall and per category, and the failure-type breakdown. A statement like "views and dictionary
+moved accuracy from X% to Y% and removed most season-off-by-one and double-counting errors" is the result worth presenting.
 
 ## 6. Build plan
 
 | Phase | Work | Done when |
 |---|---|---|
-| 1. Data | Inspect the Kaggle files, write the mapping, run `prepare_data.py`, run tests, skim for oddities (missing seasons, duplicate rows) | `--check-gold` returns sensible numbers |
-| 2. Agent v1 | Run `agent.py` on 10 questions by hand | End-to-end answers with queries shown |
-| 3. Measure | Full eval, categorize failures | Baseline accuracy recorded |
+| 1. Data | Point at the Kaggle folder, run `check_data.py`, tests and `--check-gold` | Sanity checks pass and gold answers look right |
+| 2. Agent v1 | Run `agent.py` on 10 questions by hand with each provider | End-to-end answers with queries shown |
+| 3. Measure | Full eval for both providers, categorize failures | Baseline accuracy recorded |
 | 4. Improve | Experiments in section 5, one change at a time | Before/after table |
 | 5. Present | UI demo plus results and lessons | Short deck or notebook walkthrough |
 
@@ -216,10 +187,11 @@ dictionary changes moved accuracy from X% to Y% and removed most wrong-column er
 
 | Here | At work |
 |---|---|
-| `player_games` / `team_games` CSVs | Fact tables or exports |
+| The 12 Kaggle CSVs | Fact and dimension tables, or exports |
 | `player_season` / `team_season` views | Governed metric definitions (a semantic layer) |
 | `data_dictionary.md` | Metric glossary, the single most valuable artifact |
-| Min-games filter, `season_type` filter | Business rules the agent must apply every time |
+| Min-games filter, `lg = 'NBA'`, end-year seasons | Business rules the agent must apply every time |
+| The data traps table | Real data-quality problems: duplicates, null markers, calendar conventions |
 | Eval set with gold SQL | Regression tests you rerun on every prompt or model change |
 | "Data can't answer that" cases | Trust: an agent that refuses beats one that guesses |
 | SQL guard | Read-only access, row limits, timeouts for any real data source |
@@ -227,15 +199,17 @@ dictionary changes moved accuracy from X% to Y% and removed most wrong-column er
 ## 8. Risks and limitations
 
 - **Wrong-but-plausible answers** are the main risk. Mitigation: views, dictionary, eval, showing the queries.
-- **Ambiguity** ("best player", "last season") needs a stated assumption. The prompt requires the agent to name its filters.
-- **Cost and rate limits**: the full eval makes a few hundred API calls. Run `--limit 5` first and check usage in each provider's dashboard before scaling up. Free tiers return 429 errors under load; `llm.py` backs off and retries automatically.
-- **Stateless**: each question starts fresh, so follow-ups like "what about Embiid?" don't work yet.
-- **Data freshness**: the Kaggle files are a snapshot. The agent states the date range it covers, and cannot answer about games after it.
+- **Ambiguity** ("best player", "last season", "career" across leagues) needs a stated assumption. The prompt requires the agent to name its filters, and career questions default to NBA only.
+- **Cost and rate limits**: the full eval makes a few hundred API calls. Run `--limit 5` first and check usage in each provider's dashboard. Free tiers return 429 errors under load; `llm.py` backs off and retries.
+- **Stateless**: each question starts fresh, so follow-ups like "what about Embiid?" do not work yet.
+- **Freshness**: the Kaggle files are a snapshot (this copy runs through the 2025-26 season). The agent states what the data covers.
+- **Not tested live yet**: the OpenAI and Gemini loops are tested offline with fakes. The first real run in Colab is the real test, so start with `--limit 5`.
 
 ## 9. Stretch ideas
 
+- Gemma (open model) as a third contender, run on a free Colab GPU, to compare against the API models.
+- Load the Per 100, Shooting and Play-By-Play files for questions about shot location, dunks and on/off numbers.
 - Multi-turn memory for follow-up questions.
 - A chart tool (matplotlib) so the agent can answer "show me ..." questions.
-- A "scouting report" tool that combines several queries.
 - Retrieval over articles or notes for qualitative context.
-- Fine-tune a small open model (e.g. 1B–3B, LoRA) on synthetic question-to-SQL pairs for this schema and compare it with the API model on your eval. This is the "build a model" angle if your cohort needs one.
+- Fine-tune a small open model (LoRA) on synthetic question-to-SQL pairs for this schema and compare it with the API models on your eval.

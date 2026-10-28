@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from agent import NBAAgent  # noqa: E402
 from db import NBADatabase  # noqa: E402
 from llm import OpenAIBackend, gemini_functions, with_retry  # noqa: E402
-from make_synthetic import make  # noqa: E402
+from make_fixture import make  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +32,7 @@ class FakeResponses:
         if len(self.calls) == 1:
             call = NS(type="function_call", name="run_sql", call_id="c1", arguments=json.dumps({"sql": self.sql}))
             return NS(id="r1", output=[call], output_text="")
-        return NS(id="r2", output=[NS(type="message")], output_text="  There are 30 teams.  ")
+        return NS(id="r2", output=[NS(type="message")], output_text="  There are 3 teams.  ")
 
 
 def fake_openai(sql):
@@ -42,20 +42,20 @@ def fake_openai(sql):
 
 
 def test_openai_loop_runs_tool_and_returns_text(db):
-    backend = fake_openai("SELECT count(*) FROM teams")
+    backend = fake_openai("SELECT count(*) FROM team_season")
     agent = NBAAgent(db, backend=backend)
     result = agent.ask("How many teams?")
-    assert result.answer == "There are 30 teams."
-    assert result.queries == ["SELECT count(*) FROM teams"] and result.errors == 0
+    assert result.answer == "There are 3 teams."
+    assert result.queries == ["SELECT count(*) FROM team_season"] and result.errors == 0
     first, second = backend.client.responses.calls
     assert first["instructions"] == agent.system and second["instructions"] == agent.system
     assert second["previous_response_id"] == "r1"
     output = second["input"][0]
-    assert output["type"] == "function_call_output" and output["call_id"] == "c1" and "30" in output["output"]
+    assert output["type"] == "function_call_output" and output["call_id"] == "c1" and "3" in output["output"]
 
 
 def test_bad_sql_is_reported_to_model_not_raised(db):
-    backend = fake_openai("DROP TABLE teams")
+    backend = fake_openai("DROP VIEW team_season")
     result = NBAAgent(db, backend=backend).ask("x")
     assert result.errors == 1
     assert "SQL error" in backend.client.responses.calls[1]["input"][0]["output"]

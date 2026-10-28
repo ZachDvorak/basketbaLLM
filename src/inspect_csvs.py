@@ -1,36 +1,35 @@
-"""Look inside a downloaded dataset so you can map its columns to the agent's tables.
+"""Look inside a downloaded dataset: every CSV, its columns, and sample rows.
 
     python src/inspect_csvs.py /content/my-kaggle-folder
 
-Prints, for every CSV: row count, columns with types, and 3 sample rows. Then it lists which of the columns
-the agent needs look present or missing. Copy the output into the chat if you want help writing the mapping.
+Also tells you which of the files the agent expects are present. Use this if `check_data.py` reports missing
+files or columns, or to paste into a chat when asking for help.
 """
 import sys
 from pathlib import Path
 
 import duckdb
 
-from schema import HARD, SOFT, STAT_COLS
+from schema import FILES
 
 
 def main(folder):
     files = sorted(Path(folder).rglob("*.csv"))
     if not files:
         sys.exit(f"No .csv files found under {folder}")
-    wanted = HARD | SOFT | set(STAT_COLS)
+    found = {p.name.lower() for p in files}
+    print("Files the agent expects:")
+    for table, (filename, _) in FILES.items():
+        print(f"  [{'ok' if filename.lower() in found else 'MISSING'}] {filename}")
     for path in files:
-        rel = path.relative_to(folder)
         con = duckdb.connect()
-        rel_sql = f"read_csv_auto('{path}', sample_size=20000, ignore_errors=true)"
-        rows = con.execute(f"SELECT count(*) FROM {rel_sql}").fetchone()[0]
-        cols = con.execute(f"DESCRIBE SELECT * FROM {rel_sql}").fetchall()
-        print(f"\n=== {rel}  ({rows:,} rows, {len(cols)} columns)")
+        src = f"read_csv_auto('{path}', nullstr='NA', sample_size=20000, ignore_errors=true)"
+        rows = con.execute(f"SELECT count(*) FROM {src}").fetchone()[0]
+        cols = con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()
+        print(f"\n=== {path.relative_to(folder)}  ({rows:,} rows, {len(cols)} columns)")
         print("  " + ", ".join(f"{c[0]} [{c[1]}]" for c in cols))
-        sample = con.execute(f"SELECT * FROM {rel_sql} LIMIT 3").fetchall()
-        for row in sample:
+        for row in con.execute(f"SELECT * FROM {src} LIMIT 3").fetchall():
             print("   ", row)
-        exact = sorted(wanted & {c[0].lower() for c in cols})
-        print(f"  columns already matching the agent's names: {exact or 'none'}")
 
 
 if __name__ == "__main__":

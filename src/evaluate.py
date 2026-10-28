@@ -78,6 +78,7 @@ def judge_grade(judge, question, gold_text, answer):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--data-dir", help="folder with the Kaggle CSVs (default: $NBA_DATA_DIR, then ./data)")
     parser.add_argument("--check-gold", action="store_true", help="only run gold SQL and print results")
     parser.add_argument("--judge", action="store_true")
     parser.add_argument("--limit", type=int)
@@ -88,7 +89,7 @@ def main():
     parser.add_argument("--judge-model")
     args = parser.parse_args()
 
-    db = NBADatabase()
+    db = NBADatabase(args.data_dir)
     questions = load_questions()
     if args.ids:
         questions = [q for q in questions if q["id"] in args.ids]

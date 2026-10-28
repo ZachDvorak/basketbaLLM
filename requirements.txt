@@ -2,6 +2,5 @@ openai>=1.60
 google-genai>=1.0
 duckdb>=1.0
 pandas
-nba_api>=1.5
 gradio
 pytest
