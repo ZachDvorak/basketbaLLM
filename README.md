@@ -18,7 +18,7 @@ has a "done when" check.
 | # | Do this | Done when |
 |---|---|---|
 | 1 | Open `notebooks/colab_runner.ipynb` in Colab. Add `OPENAI_API_KEY` and `GEMINI_API_KEY` under **Secrets** (key icon, left sidebar) and switch on notebook access for each. Run the clone/install cell. | `python src/list_models.py` prints model names for both providers |
-| 2 | Find the folder with the Kaggle CSVs (Colab file browser). Put its path in `DATA_DIR` in the notebook, or set `NBA_DATA_DIR`. | `python src/inspect_csvs.py <folder>` shows `[ok]` for all 12 expected files |
+| 2 | Find the folder with the Kaggle CSVs (Colab file browser). Put its path in `DATA_DIR` in the notebook, or set `NBA_DATA_DIR`. | `python src/inspect_csvs.py <folder> --files-only` shows `[ok]` for all 12 expected files |
 | 3 | Run `python src/check_data.py <folder>`. | All sanity checks say `[ok]`, and the top scorers match Basketball-Reference |
 | 4 | Run `python -m pytest tests -q`, then `python src/evaluate.py --data-dir <folder> --check-gold`. Compare 3–4 gold answers with Basketball-Reference. | Tests pass; gold answers look right |
 | 5 | Ask the agent one question by hand with each provider (notebook step 4). | You get an answer plus the SQL it ran |

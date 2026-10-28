@@ -1,10 +1,12 @@
 """Look inside a downloaded dataset: every CSV, its columns, and sample rows.
 
     python src/inspect_csvs.py /content/my-kaggle-folder
+    python src/inspect_csvs.py /content/my-kaggle-folder --files-only    # just the checklist of expected files
 
 Also tells you which of the files the agent expects are present. Use this if `check_data.py` reports missing
 files or columns, or to paste into a chat when asking for help.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -13,7 +15,7 @@ import duckdb
 from schema import FILES
 
 
-def main(folder):
+def main(folder, files_only=False):
     files = sorted(Path(folder).rglob("*.csv"))
     if not files:
         sys.exit(f"No .csv files found under {folder}")
@@ -21,6 +23,8 @@ def main(folder):
     print("Files the agent expects:")
     for table, (filename, _) in FILES.items():
         print(f"  [{'ok' if filename.lower() in found else 'MISSING'}] {filename}")
+    if files_only:
+        return
     for path in files:
         con = duckdb.connect()
         src = f"read_csv_auto('{path}', nullstr='NA', sample_size=20000, ignore_errors=true)"
@@ -33,4 +37,8 @@ def main(folder):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else ".")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    try:
+        main(args[0] if args else ".", files_only="--files-only" in sys.argv)
+    except BrokenPipeError:  # e.g. piped into `head`: stop quietly instead of printing a traceback
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
