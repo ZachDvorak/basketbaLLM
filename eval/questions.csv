@@ -1,43 +1,43 @@
-id,category,question,gold_sql
-1,lookup,How many points per game did Luka Dončić average in the 2023-24 season?,SELECT ppg FROM player_season WHERE player='Luka Dončić' AND season=2024 AND lg='NBA'
-2,lookup,How many games did LeBron James play in the 2017-18 season?,SELECT g FROM player_season WHERE player='LeBron James' AND season=2018 AND lg='NBA'
-3,lookup,What was Nikola Jokić's true shooting percentage in 2023-24?,SELECT ts_pct FROM player_season WHERE player='Nikola Jokić' AND season=2024 AND lg='NBA'
-4,lookup,How many three-pointers did Stephen Curry make in the 2015-16 season?,SELECT fg3m FROM player_season WHERE player='Stephen Curry' AND season=2016 AND lg='NBA'
-5,lookup,How many points per game did Wilt Chamberlain average in 1961-62?,SELECT ppg FROM player_season WHERE player='Wilt Chamberlain' AND season=1962 AND lg='NBA'
-6,lookup,"What was James Harden's scoring average in 2021-22, counting his whole season across both teams?",SELECT ppg FROM player_season WHERE player='James Harden' AND season=2022 AND lg='NBA'
-7,leaderboard,Who led the NBA in points per game in 2023-24 (minimum 50 games)?,"SELECT player, ppg FROM player_season WHERE season=2024 AND lg='NBA' AND g>=50 ORDER BY ppg DESC LIMIT 1"
-8,leaderboard,Who were the top 3 in assists per game in 2024-25 (minimum 50 games)?,"SELECT player, apg FROM player_season WHERE season=2025 AND lg='NBA' AND g>=50 ORDER BY apg DESC LIMIT 3"
-9,leaderboard,Who made the most three-pointers in a single season in NBA history?,"SELECT player, season_label, fg3m FROM player_season WHERE lg='NBA' ORDER BY fg3m DESC LIMIT 1"
-10,leaderboard,"Who had the highest PER in 2022-23 among players with at least 1,000 minutes?","SELECT player, per FROM player_season WHERE season=2023 AND lg='NBA' AND total_min>=1000 ORDER BY per DESC LIMIT 1"
-11,leaderboard,Who led the NBA in blocks per game in 2023-24 (minimum 50 games)?,"SELECT player, bpg FROM player_season WHERE season=2024 AND lg='NBA' AND g>=50 ORDER BY bpg DESC LIMIT 1"
-12,leaderboard,Who had the most triple-doubles in a single NBA season?,"SELECT player, season_label, triple_doubles FROM player_season WHERE lg='NBA' ORDER BY triple_doubles DESC LIMIT 1"
-13,career,How many career points did LeBron James score through the 2024-25 season?,SELECT sum(total_pts) FROM player_season WHERE player='LeBron James' AND season<=2025 AND lg='NBA'
-14,career,Who has the most career three-pointers made in the NBA?,"SELECT player, sum(fg3m) AS threes FROM player_season WHERE lg='NBA' GROUP BY player_id, player ORDER BY threes DESC LIMIT 1"
-15,career,How many NBA seasons did Vince Carter play?,SELECT count(DISTINCT season) FROM player_season WHERE player='Vince Carter' AND lg='NBA'
-16,career,"Who has the highest career points per game among players with at least 10,000 career points?","SELECT player, round(sum(total_pts)*1.0/sum(g),1) AS ppg FROM player_season WHERE lg='NBA' GROUP BY player_id, player HAVING sum(total_pts)>=10000 ORDER BY sum(total_pts)*1.0/sum(g) DESC LIMIT 1"
-17,career,"Who has more career NBA points, Kobe Bryant or Dirk Nowitzki?","SELECT player, sum(total_pts) AS pts FROM player_season WHERE player IN ('Kobe Bryant','Dirk Nowitzki') AND lg='NBA' GROUP BY player_id, player ORDER BY pts DESC"
-18,comparison,"Compare Michael Jordan and LeBron James by career points, rebounds and assists per game.","SELECT player, round(sum(total_pts)*1.0/sum(g),1) AS ppg, round(sum(total_reb)*1.0/sum(g),1) AS rpg, round(sum(total_ast)*1.0/sum(g),1) AS apg FROM player_season WHERE player IN ('Michael Jordan','LeBron James') AND lg='NBA' GROUP BY player_id, player ORDER BY player"
-19,comparison,"Who averaged more points per game in 2022-23, Joel Embiid or Nikola Jokić?","SELECT player, ppg FROM player_season WHERE player IN ('Joel Embiid','Nikola Jokić') AND season=2023 AND lg='NBA' ORDER BY ppg DESC"
-20,comparison,How did Stephen Curry's points per game change in each season from 2014-15 through 2017-18?,"SELECT season_label, ppg FROM player_season WHERE player='Stephen Curry' AND season BETWEEN 2015 AND 2018 AND lg='NBA' ORDER BY season"
-21,team,"Which team had the best record in 2015-16, and what was it?","SELECT team_name, wins, losses FROM team_season WHERE season=2016 AND lg='NBA' ORDER BY wins DESC LIMIT 1"
-22,team,Which team has the highest Simple Rating System (SRS) in a single season in NBA history?,"SELECT team_name, season_label, srs FROM team_season WHERE lg='NBA' ORDER BY srs DESC LIMIT 1"
-23,team,Which team allowed the fewest points per game in 2023-24?,"SELECT team_name, opp_ppg FROM team_season WHERE season=2024 AND lg='NBA' ORDER BY opp_ppg ASC LIMIT 1"
-24,team,How many wins did the Oklahoma City Thunder have in 2024-25?,SELECT wins FROM team_season WHERE team_name='Oklahoma City Thunder' AND season=2025 AND lg='NBA'
-25,team,Which team played at the fastest pace in 2023-24?,"SELECT team_name, pace FROM team_season WHERE season=2024 AND lg='NBA' ORDER BY pace DESC LIMIT 1"
-26,awards,Who won the NBA MVP in 2023-24?,SELECT player FROM awards WHERE award='nba mvp' AND season=2024 AND winner
-27,awards,How many MVP awards has LeBron James won?,SELECT count(*) FROM awards WHERE award='nba mvp' AND player='LeBron James' AND winner
-28,awards,Which player has won the most NBA MVP awards?,"SELECT player, count(*) AS mvps FROM awards WHERE award='nba mvp' AND winner GROUP BY player_id, player ORDER BY mvps DESC LIMIT 1"
-29,awards,Who won Rookie of the Year in 2023-24?,SELECT player FROM awards WHERE award='nba roy' AND season=2024 AND winner
-30,awards,How many times was Tim Duncan named to the All-NBA First Team?,SELECT count(*) FROM all_league_teams WHERE player='Tim Duncan' AND team_type='All-NBA' AND team_number='1st'
-31,awards,How many times was Kobe Bryant an All-Star?,SELECT count(*) FROM all_star WHERE player='Kobe Bryant'
-32,history,Who was the number one overall pick in the 2003 NBA draft?,SELECT player FROM draft WHERE draft_year=2003 AND overall_pick=1 AND lg='NBA'
-33,history,Which college has produced the most number one overall NBA draft picks?,"SELECT college, count(*) AS n FROM draft WHERE overall_pick=1 AND lg='NBA' AND college IS NOT NULL GROUP BY college ORDER BY n DESC, college LIMIT 1"
-34,history,"Which season had the highest league-wide pace, and what was it?","SELECT season_label, pace FROM league_season WHERE lg='NBA' ORDER BY pace DESC LIMIT 1"
-35,history,What was the league-average points per team per game in 1983-84 compared with 2023-24?,"SELECT season_label, ppg_per_team FROM league_season WHERE season IN (1984, 2024) AND lg='NBA' ORDER BY season"
-36,advanced,"Who had the highest usage rate in a single season (minimum 1,500 minutes)?","SELECT player, season_label, usg_pct FROM player_season WHERE lg='NBA' AND total_min>=1500 ORDER BY usg_pct DESC LIMIT 1"
-37,advanced,"Who had the best box plus/minus (BPM) in 2023-24 among players with at least 1,500 minutes?","SELECT player, bpm FROM player_season WHERE season=2024 AND lg='NBA' AND total_min>=1500 ORDER BY bpm DESC LIMIT 1"
-38,advanced,Which player had the most win shares in a single season in NBA history?,"SELECT player, season_label, ws FROM player_season WHERE lg='NBA' ORDER BY ws DESC LIMIT 1"
-39,unanswerable,What is LeBron James' salary this season?,
-40,unanswerable,How many points did Michael Jordan score in the 1993 NBA Finals?,
-41,unanswerable,How many 40-point games did Devin Booker have in 2023-24?,
-42,unanswerable,Who will win the 2027 MVP award?,
+id,category,split,question,gold_sql
+1,lookup,dev,How many points per game did Luka Dončić average in the 2023-24 season?,SELECT ppg FROM player_season WHERE player='Luka Dončić' AND season=2024 AND lg='NBA'
+2,lookup,dev,How many games did LeBron James play in the 2017-18 season?,SELECT g FROM player_season WHERE player='LeBron James' AND season=2018 AND lg='NBA'
+3,lookup,test,What was Nikola Jokić's true shooting percentage in 2023-24?,SELECT ts_pct FROM player_season WHERE player='Nikola Jokić' AND season=2024 AND lg='NBA'
+4,lookup,dev,How many three-pointers did Stephen Curry make in the 2015-16 season?,SELECT fg3m FROM player_season WHERE player='Stephen Curry' AND season=2016 AND lg='NBA'
+5,lookup,dev,How many points per game did Wilt Chamberlain average in 1961-62?,SELECT ppg FROM player_season WHERE player='Wilt Chamberlain' AND season=1962 AND lg='NBA'
+6,lookup,test,"What was James Harden's scoring average in 2021-22, counting his whole season across both teams?",SELECT ppg FROM player_season WHERE player='James Harden' AND season=2022 AND lg='NBA'
+7,leaderboard,dev,Who led the NBA in points per game in 2023-24 (minimum 50 games)?,"SELECT player, ppg FROM player_season WHERE season=2024 AND lg='NBA' AND g>=50 ORDER BY ppg DESC LIMIT 1"
+8,leaderboard,dev,Who were the top 3 in assists per game in 2024-25 (minimum 50 games)?,"SELECT player, apg FROM player_season WHERE season=2025 AND lg='NBA' AND g>=50 ORDER BY apg DESC LIMIT 3"
+9,leaderboard,test,Who made the most three-pointers in a single season in NBA history?,"SELECT player, season_label, fg3m FROM player_season WHERE lg='NBA' ORDER BY fg3m DESC LIMIT 1"
+10,leaderboard,dev,"Who had the highest PER in 2022-23 among players with at least 1,000 minutes?","SELECT player, per FROM player_season WHERE season=2023 AND lg='NBA' AND total_min>=1000 ORDER BY per DESC LIMIT 1"
+11,leaderboard,dev,Who led the NBA in blocks per game in 2023-24 (minimum 50 games)?,"SELECT player, bpg FROM player_season WHERE season=2024 AND lg='NBA' AND g>=50 ORDER BY bpg DESC LIMIT 1"
+12,leaderboard,test,Who had the most triple-doubles in a single NBA season?,"SELECT player, season_label, triple_doubles FROM player_season WHERE lg='NBA' ORDER BY triple_doubles DESC LIMIT 1"
+13,career,dev,How many career points did LeBron James score through the 2024-25 season?,SELECT sum(total_pts) FROM player_season WHERE player='LeBron James' AND season<=2025 AND lg='NBA'
+14,career,dev,Who has the most career three-pointers made in the NBA?,"SELECT player, sum(fg3m) AS threes FROM player_season WHERE lg='NBA' GROUP BY player_id, player ORDER BY threes DESC LIMIT 1"
+15,career,test,How many NBA seasons did Vince Carter play?,SELECT count(DISTINCT season) FROM player_season WHERE player='Vince Carter' AND lg='NBA'
+16,career,dev,"Who has the highest career points per game among players with at least 10,000 career points?","SELECT player, round(sum(total_pts)*1.0/sum(g),1) AS ppg FROM player_season WHERE lg='NBA' GROUP BY player_id, player HAVING sum(total_pts)>=10000 ORDER BY sum(total_pts)*1.0/sum(g) DESC LIMIT 1"
+17,career,dev,"Who has more career NBA points, Kobe Bryant or Dirk Nowitzki?","SELECT player, sum(total_pts) AS pts FROM player_season WHERE player IN ('Kobe Bryant','Dirk Nowitzki') AND lg='NBA' GROUP BY player_id, player ORDER BY pts DESC"
+18,comparison,test,"Compare Michael Jordan and LeBron James by career points, rebounds and assists per game.","SELECT player, round(sum(total_pts)*1.0/sum(g),1) AS ppg, round(sum(total_reb)*1.0/sum(g),1) AS rpg, round(sum(total_ast)*1.0/sum(g),1) AS apg FROM player_season WHERE player IN ('Michael Jordan','LeBron James') AND lg='NBA' GROUP BY player_id, player ORDER BY player"
+19,comparison,dev,"Who averaged more points per game in 2022-23, Joel Embiid or Nikola Jokić?","SELECT player, ppg FROM player_season WHERE player IN ('Joel Embiid','Nikola Jokić') AND season=2023 AND lg='NBA' ORDER BY ppg DESC"
+20,comparison,dev,How did Stephen Curry's points per game change in each season from 2014-15 through 2017-18?,"SELECT season_label, ppg FROM player_season WHERE player='Stephen Curry' AND season BETWEEN 2015 AND 2018 AND lg='NBA' ORDER BY season"
+21,team,test,"Which team had the best record in 2015-16, and what was it?","SELECT team_name, wins, losses FROM team_season WHERE season=2016 AND lg='NBA' ORDER BY wins DESC LIMIT 1"
+22,team,dev,Which team has the highest Simple Rating System (SRS) in a single season in NBA history?,"SELECT team_name, season_label, srs FROM team_season WHERE lg='NBA' ORDER BY srs DESC LIMIT 1"
+23,team,dev,Which team allowed the fewest points per game in 2023-24?,"SELECT team_name, opp_ppg FROM team_season WHERE season=2024 AND lg='NBA' ORDER BY opp_ppg ASC LIMIT 1"
+24,team,test,How many wins did the Oklahoma City Thunder have in 2024-25?,SELECT wins FROM team_season WHERE team_name='Oklahoma City Thunder' AND season=2025 AND lg='NBA'
+25,team,dev,Which team played at the fastest pace in 2023-24?,"SELECT team_name, pace FROM team_season WHERE season=2024 AND lg='NBA' ORDER BY pace DESC LIMIT 1"
+26,awards,dev,Who won the NBA MVP in 2023-24?,SELECT player FROM awards WHERE award='nba mvp' AND season=2024 AND winner
+27,awards,test,How many MVP awards has LeBron James won?,SELECT count(*) FROM awards WHERE award='nba mvp' AND player='LeBron James' AND winner
+28,awards,dev,Which player has won the most NBA MVP awards?,"SELECT player, count(*) AS mvps FROM awards WHERE award='nba mvp' AND winner GROUP BY player_id, player ORDER BY mvps DESC LIMIT 1"
+29,awards,dev,Who won Rookie of the Year in 2023-24?,SELECT player FROM awards WHERE award='nba roy' AND season=2024 AND winner
+30,awards,test,How many times was Tim Duncan named to the All-NBA First Team?,SELECT count(*) FROM all_league_teams WHERE player='Tim Duncan' AND team_type='All-NBA' AND team_number='1st'
+31,awards,dev,How many times was Kobe Bryant an All-Star?,SELECT count(*) FROM all_star WHERE player='Kobe Bryant'
+32,history,dev,Who was the number one overall pick in the 2003 NBA draft?,SELECT player FROM draft WHERE draft_year=2003 AND overall_pick=1 AND lg='NBA'
+33,history,test,Which college has produced the most number one overall NBA draft picks?,"SELECT college, count(*) AS n FROM draft WHERE overall_pick=1 AND lg='NBA' AND college IS NOT NULL GROUP BY college ORDER BY n DESC, college LIMIT 1"
+34,history,dev,"Which season had the highest league-wide pace, and what was it?","SELECT season_label, pace FROM league_season WHERE lg='NBA' ORDER BY pace DESC LIMIT 1"
+35,history,dev,What was the league-average points per team per game in 1983-84 compared with 2023-24?,"SELECT season_label, ppg_per_team FROM league_season WHERE season IN (1984, 2024) AND lg='NBA' ORDER BY season"
+36,advanced,test,"Who had the highest usage rate in a single season (minimum 1,500 minutes)?","SELECT player, season_label, usg_pct FROM player_season WHERE lg='NBA' AND total_min>=1500 ORDER BY usg_pct DESC LIMIT 1"
+37,advanced,dev,"Who had the best box plus/minus (BPM) in 2023-24 among players with at least 1,500 minutes?","SELECT player, bpm FROM player_season WHERE season=2024 AND lg='NBA' AND total_min>=1500 ORDER BY bpm DESC LIMIT 1"
+38,advanced,dev,Which player had the most win shares in a single season in NBA history?,"SELECT player, season_label, ws FROM player_season WHERE lg='NBA' ORDER BY ws DESC LIMIT 1"
+39,unanswerable,test,What is LeBron James' salary this season?,
+40,unanswerable,dev,How many points did Michael Jordan score in the 1993 NBA Finals?,
+41,unanswerable,dev,How many 40-point games did Devin Booker have in 2023-24?,
+42,unanswerable,test,Who will win the 2027 MVP award?,

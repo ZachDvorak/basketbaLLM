@@ -152,3 +152,11 @@ def test_auto_grade():
     assert not auto_grade([("Luka Dončić", 33.9)], "Luka Dončić led at 31.0 ppg.", False)
     assert auto_grade([], "I don't have salary data.", True)
     assert not auto_grade([], "He earns $48 million.", True)
+
+
+def test_eval_split_is_balanced_and_covers_every_category():
+    questions = load_questions()
+    assert {q["split"] for q in questions} == {"dev", "test"}
+    test = [q for q in questions if q["split"] == "test"]
+    assert 10 <= len(test) <= len(questions) // 2
+    assert {q["category"] for q in test} == {q["category"] for q in questions}

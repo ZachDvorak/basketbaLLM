@@ -3,6 +3,7 @@
     python src/evaluate.py --check-gold            # run only the gold SQL (no API key needed)
     python src/evaluate.py --limit 5               # quick smoke test
     python src/evaluate.py --judge                 # also grade with an LLM judge (more forgiving)
+    python src/evaluate.py --split dev             # tune against these; run --split test only at the very end
     python src/evaluate.py --provider gemini --model gemini-2.5-flash
     python src/evaluate.py --provider openai --judge --judge-provider gemini
 
@@ -81,6 +82,8 @@ def main():
     parser.add_argument("--data-dir", help="folder with the Kaggle CSVs (default: $NBA_DATA_DIR, then ./data)")
     parser.add_argument("--check-gold", action="store_true", help="only run gold SQL and print results")
     parser.add_argument("--judge", action="store_true")
+    parser.add_argument("--split", choices=["dev", "test", "all"], default="all",
+                        help="dev = questions you tune against; test = held back to check you did not overfit")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--ids", nargs="+")
     parser.add_argument("--provider", choices=["openai", "gemini"], default=None)
@@ -91,6 +94,8 @@ def main():
 
     db = NBADatabase(args.data_dir)
     questions = load_questions()
+    if args.split != "all":
+        questions = [q for q in questions if q["split"] == args.split]
     if args.ids:
         questions = [q for q in questions if q["id"] in args.ids]
     if args.limit:

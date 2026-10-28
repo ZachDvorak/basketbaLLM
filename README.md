@@ -22,8 +22,10 @@ has a "done when" check.
 | 3 | Run `python src/check_data.py <folder>`. | All sanity checks say `[ok]`, and the top scorers match Basketball-Reference |
 | 4 | Run `python -m pytest tests -q`, then `python src/evaluate.py --data-dir <folder> --check-gold`. Compare 3–4 gold answers with Basketball-Reference. | Tests pass; gold answers look right |
 | 5 | Ask the agent one question by hand with each provider (notebook step 4). | You get an answer plus the SQL it ran |
-| 6 | `python src/evaluate.py --provider openai --limit 5 --judge`, check the cost in the provider dashboard, then run the full set for each provider. | You have `results/eval_*.csv` for both providers |
-| 7 | Read the failures, pick one fix (section 5), rerun. Repeat. Gemma comes after this works. | A before/after accuracy table |
+| 6 | `python src/evaluate.py --provider openai --split dev --limit 5 --judge`, check the cost in the provider dashboard, then run `--split dev` in full for each provider. | You have `results/eval_*.csv` for both providers |
+| 7 | Read the failures, pick one fix (section 5), rerun on `--split dev`. Repeat. When you stop changing things, run `--split test` **once**. | A before/after table on dev, and one final score on test |
+| 8 | Have the models build the app (section 6): `python src/build_app.py --provider gemini`, read the file, launch it. | A chat interface you can open and share |
+| 9 | Gemma comes after this works. | |
 
 **About SQL in Colab:** you do not need a database. DuckDB is the SQL engine: it installs with one `pip install`
 (already in `requirements.txt`), runs inside the notebook, and queries your CSV files directly. Your data stays CSV.
@@ -69,8 +71,8 @@ results, which is what makes the answers checkable.
 | Agent | `src/agent.py` | System prompt, two tools, and the question-to-answer flow |
 | LLM layer | `src/llm.py` | One tool-calling loop each for OpenAI (Responses API) and Gemini (`google-genai`), with retry on rate limits |
 | Models | `src/list_models.py` | Lists the models your API keys can use |
-| Eval | `src/evaluate.py`, `eval/questions.csv` | 42 questions with gold SQL; automatic + LLM-judge grading |
-| UI | `src/app.py` | Optional Gradio chat |
+| Eval | `src/evaluate.py`, `eval/questions.csv` | 42 questions with gold SQL (28 dev, 14 held-out test); automatic + LLM-judge grading |
+| UI | `src/app.py`, `src/build_app.py`, `docs/app_brief.md` | Plain Gradio chat, plus a script that has OpenAI or Gemini write a nicer one |
 | Docs | `docs/data_dictionary.md` | Column meanings and conventions; the agent reads this |
 | Tests | `tests/` | Offline tests on a tiny fake dataset (views, SQL guard, loaders, grader, provider loops) |
 
@@ -148,7 +150,23 @@ To download the dataset yourself in Colab: `import kagglehub; kagglehub.dataset_
 
 ## 5. Evaluation
 
-`eval/questions.csv` has 42 questions in 10 categories: lookup, leaderboard, career, comparison, team, awards,
+### Does running the eval make the model better?
+No. The eval only **measures** the agent. The model's weights never change. Accuracy improves when *you* change
+something because of what the eval showed: the prompt, the data dictionary, the views, worked examples, or the model.
+
+Two traps to avoid:
+- **Overfitting to the eval.** If you keep tuning until the same 42 questions pass, the score rises because you
+  fitted those questions, not because the agent is better. So the questions are split: 28 are `dev` (tune against
+  these, as often as you like) and 14 are `test` (held back). Run `--split test` once at the end. If dev is high and
+  test is much lower, you overfit. Never copy test questions into prompt examples.
+- **Noise.** LLM answers vary from run to run, so a one-question change is not a real result. Compare averages over
+  2–3 runs, and look at the failure types, not just the score.
+
+Also do not run it constantly for its own sake: every run costs API calls. A good loop is: run dev, read the
+failures, make one change, run dev again.
+
+
+`eval/questions.csv` has 42 questions in 9 categories: lookup, leaderboard, career, comparison, team, awards,
 history, advanced, and **unanswerable** (the agent must decline, not invent). Each answerable question has a gold SQL
 query, and the harness runs it against your data, so the expected answers always come from the same files the agent
 uses. The gold answers were checked against known facts (Luka Dončić 33.9 ppg in 2023-24, Curry's 402 threes in
@@ -163,17 +181,41 @@ Both have blind spots, so read a sample of failures by hand. Failures are record
 queries the agent ran, so you can tag each as: wrong column, bad join, missing filter, season off by one, double
 counted trade, misread question, hallucinated number, or grader error.
 
-**Experiments that make a good write-up** (change one thing at a time, rerun the full set):
+**Experiments that make a good write-up** (change one thing at a time, rerun `--split dev`):
 1. Baseline: no data dictionary and no views (let the agent query the raw CSV tables). This shows what the views buy you.
 2. Add the dictionary and views (the current design).
 3. Add 5–10 worked question-to-SQL examples to the system prompt.
 4. Model comparison: OpenAI vs Gemini, and a small vs larger model from each (`--provider`, `--model`); plot accuracy vs cost and latency.
-5. Expand the question set with your own questions, especially ones the agent got wrong.
+5. Add your own questions (put new ones in `dev` or `test` by setting the `split` column).
 
 Report accuracy overall and per category, and the failure-type breakdown. A statement like "views and dictionary
 moved accuracy from X% to Y% and removed most season-off-by-one and double-counting errors" is the result worth presenting.
 
-## 6. Build plan
+## 6. Building the app with the models
+
+The plain chat interface is `src/app.py`. For something nicer, the OpenAI and Gemini models write the interface
+themselves. You give them a brief; they do the design and the code.
+
+- `docs/app_brief.md` is the brief. It says what the agent provides and what the app must do (answer, collapsible
+  SQL, examples, provider choice, loading and error states, mobile friendly). It deliberately leaves all visual
+  design to the model.
+- `src/build_app.py` sends the brief to a model, checks the reply is valid Python that uses the agent, flags risky
+  lines, and saves it to `src/app_generated.py`. It never overwrites `src/app.py`.
+
+```bash
+python src/build_app.py --provider gemini                    # first draft
+python src/build_app.py --provider openai --out src/app_openai.py   # same brief, other model: compare them
+python src/app_generated.py                                  # launch it (prints a public link in Colab)
+python src/build_app.py --provider gemini --feedback "make the answer card larger and use a darker theme"
+python src/build_app.py --provider gemini --feedback "<paste the error you got>"
+```
+
+Tips: a stronger model usually writes better code (`--model`, see `list_models.py`); generating one app per
+provider and comparing them is a nice small experiment; and the feedback loop works for errors too, so paste the
+traceback back in. **Read the generated file before you run it**: it runs with your API keys in the environment.
+Edit `docs/app_brief.md` if you want different features.
+
+## 7. Build plan
 
 | Phase | Work | Done when |
 |---|---|---|
@@ -181,9 +223,10 @@ moved accuracy from X% to Y% and removed most season-off-by-one and double-count
 | 2. Agent v1 | Run `agent.py` on 10 questions by hand with each provider | End-to-end answers with queries shown |
 | 3. Measure | Full eval for both providers, categorize failures | Baseline accuracy recorded |
 | 4. Improve | Experiments in section 5, one change at a time | Before/after table |
-| 5. Present | UI demo plus results and lessons | Short deck or notebook walkthrough |
+| 5. App | Have the models build the interface, compare, iterate with feedback | A shareable chat app |
+| 6. Present | Demo plus results and lessons | Short deck or notebook walkthrough |
 
-## 7. Mapping to your business work
+## 8. Mapping to your business work
 
 | Here | At work |
 |---|---|
@@ -196,7 +239,7 @@ moved accuracy from X% to Y% and removed most season-off-by-one and double-count
 | "Data can't answer that" cases | Trust: an agent that refuses beats one that guesses |
 | SQL guard | Read-only access, row limits, timeouts for any real data source |
 
-## 8. Risks and limitations
+## 9. Risks and limitations
 
 - **Wrong-but-plausible answers** are the main risk. Mitigation: views, dictionary, eval, showing the queries.
 - **Ambiguity** ("best player", "last season", "career" across leagues) needs a stated assumption. The prompt requires the agent to name its filters, and career questions default to NBA only.
@@ -205,7 +248,7 @@ moved accuracy from X% to Y% and removed most season-off-by-one and double-count
 - **Freshness**: the Kaggle files are a snapshot (this copy runs through the 2025-26 season). The agent states what the data covers.
 - **Not tested live yet**: the OpenAI and Gemini loops are tested offline with fakes. The first real run in Colab is the real test, so start with `--limit 5`.
 
-## 9. Stretch ideas
+## 10. Stretch ideas
 
 - Gemma (open model) as a third contender, run on a free Colab GPU, to compare against the API models.
 - Load the Per 100, Shooting and Play-By-Play files for questions about shot location, dunks and on/off numbers.
