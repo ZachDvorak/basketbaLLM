@@ -1,15 +1,12 @@
-"""The basketball analytics agent: Claude + two tools (schema lookup, read-only SQL) over the CSV data."""
+"""The basketball analytics agent: an LLM (OpenAI or Gemini) + two tools (schema lookup, read-only SQL)."""
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import anthropic
-from anthropic import beta_tool
-
 from db import NBADatabase, format_rows
+from llm import make_backend
 
-# Swap for a cheaper model (e.g. "claude-haiku-5-5") once the eval shows quality holds.
-MODEL = os.environ.get("NBA_AGENT_MODEL", "claude-opus-5-5")
+DEFAULT_PROVIDER = os.environ.get("NBA_PROVIDER", "openai")
 DICTIONARY = Path(__file__).resolve().parent.parent / "docs" / "data_dictionary.md"
 
 SYSTEM_PROMPT = """You are a basketball analyst. You answer questions using ONLY the NBA database you can query with your tools.
@@ -33,51 +30,30 @@ class AgentResult:
 
 
 class NBAAgent:
-    def __init__(self, db=None, model=MODEL):
+    def __init__(self, db=None, provider=DEFAULT_PROVIDER, model=None, backend=None):
         self.db = db or NBADatabase()
-        self.model = model
-        self.client = anthropic.Anthropic()
+        self.backend = backend or make_backend(provider, model)
+        self.provider, self.model = self.backend.name, getattr(self.backend, "model", model)
         self.system = f"{SYSTEM_PROMPT}\nData coverage: {self.db.coverage()}"
         self._queries, self._errors = [], 0
+        self.tools = {"get_schema": self._get_schema, "run_sql": self._run_sql}
 
-        agent = self
+    def _get_schema(self):
+        text = DICTIONARY.read_text() if DICTIONARY.exists() else ""
+        return f"{text}\n\n## Live schema\n{self.db.live_schema()}"
 
-        @beta_tool
-        def get_schema() -> str:
-            """Return the data dictionary and the live list of tables, views, and columns."""
-            text = DICTIONARY.read_text() if DICTIONARY.exists() else ""
-            return f"{text}\n\n## Live schema\n{agent.db.live_schema()}"
-
-        @beta_tool
-        def run_sql(sql: str) -> str:
-            """Run one read-only DuckDB SELECT query against the NBA data and return up to 50 rows as CSV.
-
-            Args:
-                sql: A single SELECT (or WITH ... SELECT) statement.
-            """
-            agent._queries.append(sql)
-            try:
-                return format_rows(*agent.db.run_sql(sql))
-            except ValueError as exc:
-                agent._errors += 1
-                return f"SQL error: {exc}"
-
-        self.tools = [get_schema, run_sql]
+    def _run_sql(self, sql):
+        self._queries.append(sql)
+        try:
+            return format_rows(*self.db.run_sql(sql))
+        except ValueError as exc:
+            self._errors += 1
+            return f"SQL error: {exc}"
 
     def ask(self, question):
         """Answer one question (stateless: each call starts a fresh conversation)."""
         self._queries, self._errors = [], 0
-        runner = self.client.beta.messages.tool_runner(
-            model=self.model,
-            max_tokens=16000,
-            system=self.system,
-            tools=self.tools,
-            messages=[{"role": "user", "content": question}],
-        )
-        final = runner.until_done()
-        answer = "".join(b.text for b in final.content if b.type == "text").strip()
-        if final.stop_reason == "refusal":
-            answer = answer or "The model declined to answer this request."
+        answer = self.backend.run(self.system, question, self.tools)
         return AgentResult(answer=answer, queries=list(self._queries), errors=self._errors)
 
 

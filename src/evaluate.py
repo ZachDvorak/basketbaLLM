@@ -3,11 +3,13 @@
     python src/evaluate.py --check-gold            # run only the gold SQL (no API key needed)
     python src/evaluate.py --limit 5               # quick smoke test
     python src/evaluate.py --judge                 # also grade with an LLM judge (more forgiving)
-    python src/evaluate.py --model claude-haiku-5-5
+    python src/evaluate.py --provider gemini --model gemini-2.5-flash
+    python src/evaluate.py --provider openai --judge --judge-provider gemini
 
 Two scores per question:
   auto   - every value in the gold SQL result appears in the answer text (numbers within rounding)
-  judge  - a small model compares the answer with the gold result (only with --judge)
+  judge  - a model compares the answer with the gold result (only with --judge). By default the judge is the
+           OTHER provider than the agent, since models tend to grade their own family more kindly.
 Always read a sample of failures by hand: both graders have blind spots.
 """
 import argparse
@@ -23,7 +25,6 @@ from db import NBADatabase
 ROOT = Path(__file__).resolve().parent.parent
 QUESTIONS = ROOT / "eval" / "questions.csv"
 RESULTS = ROOT / "results"
-JUDGE_MODEL = "claude-haiku-5-5"
 REFUSAL_HINTS = ("don't have", "do not have", "not in the", "isn't in", "is not in", "not available",
                  "doesn't", "does not", "cannot", "can't", "unable", "no data", "outside", "not cover")
 
@@ -65,19 +66,14 @@ def auto_grade(gold_rows, answer, is_unanswerable):
     return all(cell_found(c, answer, nums) for row in gold_rows[:5] for c in row)
 
 
-def judge_grade(client, question, gold_text, answer):
+def judge_grade(judge, question, gold_text, answer):
     prompt = (
         f"Question: {question}\n\nGround-truth query result:\n{gold_text}\n\nCandidate answer:\n{answer}\n\n"
         "Does the candidate answer agree with the ground truth? Rounding differences and extra context are fine; "
         "wrong names or materially different numbers are not. If the ground truth says the data cannot answer "
         "the question, the candidate must say so instead of inventing a number. Reply with exactly CORRECT or INCORRECT."
     )
-    reply = client.messages.create(
-        model=JUDGE_MODEL, max_tokens=2000, output_config={"effort": "low"},
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = "".join(b.text for b in reply.content if b.type == "text").strip().upper()
-    return text.startswith("CORRECT")
+    return judge.complete(prompt).strip().upper().startswith("CORRECT")
 
 
 def main():
@@ -86,7 +82,10 @@ def main():
     parser.add_argument("--judge", action="store_true")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--ids", nargs="+")
-    parser.add_argument("--model")
+    parser.add_argument("--provider", choices=["openai", "gemini"], default=None)
+    parser.add_argument("--model", help="model name for the agent (see src/list_models.py)")
+    parser.add_argument("--judge-provider", choices=["openai", "gemini"], default=None)
+    parser.add_argument("--judge-model")
     args = parser.parse_args()
 
     db = NBADatabase()
@@ -107,10 +106,15 @@ def main():
             print("    ", gold.get(q["id"], "expected: the agent should say the data cannot answer this"))
         return
 
-    from agent import MODEL, NBAAgent
+    from agent import DEFAULT_PROVIDER, NBAAgent
+    from llm import make_backend
 
-    agent = NBAAgent(db, model=args.model or MODEL)
-    client = agent.client if args.judge else None
+    agent = NBAAgent(db, provider=args.provider or DEFAULT_PROVIDER, model=args.model)
+    judge = None
+    if args.judge:
+        judge_provider = args.judge_provider or ("gemini" if agent.provider == "openai" else "openai")
+        judge = make_backend(judge_provider, args.judge_model)
+        print(f"Agent: {agent.provider}/{agent.model}   Judge: {judge.name}/{judge.model}")
     rows = []
     for q in questions:
         started = time.time()
@@ -125,9 +129,9 @@ def main():
         judged = ""
         if args.judge:
             gold_text = "(data cannot answer this)" if unanswerable else "\n".join(map(str, gold_rows[:5]))
-            judged = judge_grade(client, q["question"], gold_text, answer)
+            judged = judge_grade(judge, q["question"], gold_text, answer)
         rows.append({
-            "id": q["id"], "category": q["category"], "question": q["question"], "answer": answer,
+            "id": q["id"], "provider": agent.provider, "model": agent.model, "category": q["category"], "question": q["question"], "answer": answer,
             "gold": "" if unanswerable else str(gold_rows[:5]), "auto_pass": auto, "judge_pass": judged,
             "n_queries": len(queries), "n_sql_errors": errors, "seconds": round(time.time() - started, 1),
             "queries": " ||| ".join(queries),
@@ -145,7 +149,7 @@ def main():
     def rate(subset, key):
         return f"{sum(bool(r[key]) for r in subset)}/{len(subset)}" if subset else "-"
 
-    print(f"\nModel: {agent.model}   Results: {out}")
+    print(f"\nAgent: {agent.provider}/{agent.model}   Results: {out}")
     print(f"Overall  auto {rate(rows, 'auto_pass')}" + (f"   judge {rate(rows, 'judge_pass')}" if args.judge else ""))
     for category in sorted({r['category'] for r in rows}):
         subset = [r for r in rows if r['category'] == category]

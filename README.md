@@ -30,9 +30,9 @@ results, which is what makes the answers checkable.
       |
       v
  +-----------+   get_schema()    +--------------------------+
- |  Claude   | ----------------> | data dictionary + live   |
- |  (agent   |   run_sql(sql)    | schema                   |
- |   loop)   | ----------------> +--------------------------+
+ |   LLM     | ----------------> | data dictionary + live   |
+ | (OpenAI   |   run_sql(sql)    | schema                   |
+ | or Gemini)| ----------------> +--------------------------+
  |           | <---------------- DuckDB (in-memory, read-only)
  +-----------+   rows as CSV      tables loaded from data/*.csv
       |                           views: player_season, team_season
@@ -44,9 +44,11 @@ results, which is what makes the answers checkable.
 |---|---|---|
 | Data pull | `src/pull_data.py` | Downloads box scores via `nba_api`, validates, writes CSVs |
 | Database | `src/db.py` | Loads CSVs into DuckDB, defines season views, guards SQL |
-| Agent | `src/agent.py` | System prompt, two tools, tool-use loop (Anthropic SDK tool runner) |
+| Agent | `src/agent.py` | System prompt, two tools, and the question-to-answer flow |
+| LLM layer | `src/llm.py` | One tool-calling loop each for OpenAI (Responses API) and Gemini (`google-genai`), with retry on rate limits |
 | Eval | `src/evaluate.py`, `eval/questions.csv` | 32 questions with gold SQL; automatic + LLM-judge grading |
 | UI | `src/app.py` | Optional Gradio chat |
+| Models | `src/list_models.py` | Lists the models your API keys can use |
 | Docs | `docs/data_dictionary.md` | Column meanings and query gotchas; the agent reads this |
 | Tests | `tests/` | Offline tests on fake data (pipeline, SQL guard, gold SQL, grader) |
 
@@ -87,19 +89,22 @@ Full column list: [`docs/data_dictionary.md`](docs/data_dictionary.md).
 
 ## 4. Setup (Colab)
 
-1. Zip this folder as `nba-agent.zip` and open `notebooks/colab_runner.ipynb` in Colab (or `git clone`).
-2. Add `ANTHROPIC_API_KEY` under Colab **Secrets** and enable notebook access.
-3. Run the notebook top to bottom: install, pull data, run tests, ask a question, evaluate.
+1. Open `notebooks/colab_runner.ipynb` in Colab. It clones this repo.
+2. Add `OPENAI_API_KEY` and `GEMINI_API_KEY` under Colab **Secrets** and enable notebook access.
+3. Run the notebook top to bottom: install, load data, run tests, ask a question, evaluate.
+4. Run `python src/list_models.py` and set `--model` (or `NBA_OPENAI_MODEL` / `NBA_GEMINI_MODEL`) to models your keys can actually use. The defaults are only starting points.
 
 Locally:
 
 ```bash
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=...
+export OPENAI_API_KEY=...
+export GEMINI_API_KEY=...
 python src/pull_data.py
 python -m pytest tests -q
-python src/agent.py "Who led the league in assists per game in 2024-25?"
-python src/evaluate.py --judge
+python src/list_models.py
+NBA_PROVIDER=gemini python src/agent.py "Who led the league in assists per game in 2024-25?"
+python src/evaluate.py --provider openai --judge
 ```
 
 ## 5. Evaluation
@@ -111,7 +116,7 @@ expected answers stay correct whichever seasons you pull.
 
 Two graders:
 - **auto**: every value in the gold result must appear in the answer (numbers within rounding).
-- **judge** (`--judge`): a small model compares the answer with the gold result. More forgiving of phrasing.
+- **judge** (`--judge`): a model compares the answer with the gold result. More forgiving of phrasing. By default the judge is the *other* provider than the agent, to avoid a model favoring its own family.
 
 Both have blind spots, so read a sample of failures by hand. Failures are recorded in `results/eval_*.csv`
 with the queries the agent ran, so you can tag each as: wrong column, bad join, missing filter, misread
@@ -121,7 +126,7 @@ question, hallucinated number, or grader error.
 1. Baseline: no `get_schema` description, no views (query raw tables only).
 2. Add the data dictionary and views (the current design).
 3. Add 5–10 worked question-to-SQL examples to the system prompt.
-4. Model comparison: `--model claude-haiku-5-5` vs `claude-sonnet-5-5` vs `claude-opus-5-5`; plot accuracy vs cost.
+4. Model comparison: OpenAI vs Gemini, and a small vs larger model from each (`--provider`, `--model`); plot accuracy vs cost and latency.
 5. Expand the question set with your own questions, especially the ones you tried that failed.
 
 Report accuracy overall and per category, and the failure-type breakdown. A statement like "view and
@@ -157,7 +162,7 @@ dictionary changes moved accuracy from X% to Y% and removed most wrong-column er
 
 - **Wrong-but-plausible answers** are the main risk. Mitigation: views, dictionary, eval, showing the queries.
 - **Ambiguity** ("best player", "last season") needs a stated assumption. The prompt requires the agent to name its filters.
-- **Cost**: the full eval makes a few hundred API calls. Run `--limit 5` first and check usage in the Anthropic console before scaling up.
+- **Cost and rate limits**: the full eval makes a few hundred API calls. Run `--limit 5` first and check usage in each provider's dashboard before scaling up. Free tiers return 429 errors under load; `llm.py` backs off and retries automatically.
 - **Stateless**: each question starts fresh, so follow-ups like "what about Embiid?" don't work yet.
 - **Data freshness**: the CSVs are a snapshot. Re-run `pull_data.py` (delete `data/raw/` for the current season) to refresh.
 
