@@ -6,12 +6,15 @@
     python src/build_app.py --provider gemini --feedback "<paste the error you got when launching>"
 
 With --feedback the model is shown its previous file (--out, or --from) and your note, and revises it.
-The model's reply is checked for valid Python and for risky calls, then saved. READ the file before running it:
-it will run with your API keys in the environment.
+The model's reply is checked for valid Python and for risky calls, then saved. Then the app is test-launched
+with a stand-in agent (no API calls). If launching fails, the error goes back to the model to fix, up to --max-fixes
+times, so version mismatches like Gradio's renamed arguments are repaired by the model, not by you.
+READ the final file before running it: it will run with your API keys in the environment.
 """
 import argparse
 import ast
 import re
+import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -54,6 +57,53 @@ def risky_lines(code):
             if any(token in line for token in RISKY) and not line.strip().startswith("#")]
 
 
+# Runs the generated file with a stand-in `agent` module and a launch() that starts the server without blocking,
+# so construction errors (wrong Gradio arguments) show up without API keys or model calls.
+SMOKE = r"""
+import runpy, sys, types
+stub = types.ModuleType("agent")
+class _Result:
+    answer, queries, errors = "A test answer.", ["SELECT 1"], 0
+class _Db:
+    def coverage(self):
+        return "Seasons 1946-47 through 2025-26."
+class NBAAgent:
+    def __init__(self, *args, **kwargs):
+        self.db = _Db()
+    def ask(self, question):
+        return _Result()
+stub.NBAAgent, stub.AgentResult = NBAAgent, _Result
+sys.modules["agent"] = stub
+import gradio as gr
+launched = []
+_launch = gr.Blocks.launch
+def launch(self, *args, **kwargs):
+    kwargs.update(prevent_thread_lock=True, share=False, quiet=True)
+    _launch(self, *args, **kwargs)
+    launched.append(1)
+    self.close()
+gr.Blocks.launch = launch
+runpy.run_path(sys.argv[1], run_name="__main__")
+if not launched:
+    sys.exit("The file ran but never called launch(). Put demo.launch(share=True) under "
+             "if __name__ == '__main__':")
+print("SMOKE_OK")
+"""
+
+
+def smoke_test(path, timeout=90):
+    """Returns (ok, message). message is the tail of the error output when not ok."""
+    try:
+        run = subprocess.run([sys.executable, "-c", SMOKE, str(path)], capture_output=True, text=True,
+                             timeout=timeout, cwd=ROOT / "src")
+    except subprocess.TimeoutExpired:
+        return False, f"The app did not finish starting within {timeout} seconds."
+    if run.returncode == 0 and "SMOKE_OK" in run.stdout:
+        return True, ""
+    tail = "\n".join((run.stderr or run.stdout).strip().splitlines()[-25:])
+    return False, tail or "The app exited without an error message."
+
+
 def generate(backend, prompt):
     """Returns (code or None, problem or None, raw model reply)."""
     raw = backend.complete(prompt)
@@ -76,6 +126,9 @@ def main():
     parser.add_argument("--out", default=str(ROOT / "src" / "app_generated.py"))
     parser.add_argument("--from", dest="source", help="file to revise (default: --out if it exists)")
     parser.add_argument("--feedback", help="what to change, or paste the error from launching")
+    parser.add_argument("--max-fixes", type=int, default=2,
+                        help="how many times to send a launch error back to the model (default 2)")
+    parser.add_argument("--no-verify", action="store_true", help="skip the test launch")
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -89,8 +142,8 @@ def main():
 
     backend = make_backend(args.provider, args.model)
     print(f"Asking {backend.name}/{backend.model} to {'revise' if previous else 'write'} the interface...")
-    prompt = build_prompt(BRIEF.read_text(), BASELINE.read_text(), previous, args.feedback)
-    code, problem, raw = generate(backend, prompt)
+    brief, baseline = BRIEF.read_text(), BASELINE.read_text()
+    code, problem, raw = generate(backend, build_prompt(brief, baseline, previous, args.feedback))
     if code is None:
         raw_path = out.with_suffix(".raw.txt")
         raw_path.write_text(raw)
@@ -98,14 +151,41 @@ def main():
 
     out.write_text(code)
     print(f"Saved {out} ({len(code.splitlines())} lines).")
+    verified = args.no_verify
+    for attempt in range(0 if args.no_verify else args.max_fixes + 1):
+        ok, error = smoke_test(out)
+        if ok:
+            print("Test launch passed: the app starts without errors.")
+            verified = True
+            break
+        print(f"\nTest launch failed:\n{error}\n")
+        if attempt == args.max_fixes:
+            break
+        print(f"Sending the error back to the model (fix {attempt + 1} of {args.max_fixes})...")
+        fix_prompt = build_prompt(brief, baseline, code,
+                                  "Launching the app failed with the error below. Fix it, using only calls that "
+                                  f"exist in the installed Gradio version, and return the complete file.\n\n{error}")
+        fixed, problem, raw = generate(backend, fix_prompt)
+        if fixed is None:
+            print(f"The model's fix was not usable: {problem}.")
+            break
+        code = fixed
+        out.write_text(code)
+        print(f"Saved the revised {out} ({len(code.splitlines())} lines).")
+
     flagged = risky_lines(code)
     if flagged:
         print("\nReview these lines before running (the brief told the model not to use them):")
         for number, line in flagged:
             print(f"  line {number}: {line}")
     shown = out.resolve().relative_to(ROOT) if out.resolve().is_relative_to(ROOT) else out
-    print(f"\nNext: read the file, then run  python {shown}"
-          "\nNot happy with it, or it errors? Run this again with --feedback \"...\".")
+    if verified:
+        print(f"\nNext: read the file, then run  python {shown}"
+              "\nNot happy with how it looks? Run this again with --feedback \"...\".")
+    else:
+        sys.exit(f"\nThe app still fails to launch after {args.max_fixes} automatic fixes. The file is saved at "
+                 f"{shown}. Run this again with --feedback and the error above, or try --model with a stronger "
+                 "model (see src/list_models.py).")
 
 
 if __name__ == "__main__":

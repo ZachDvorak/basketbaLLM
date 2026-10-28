@@ -210,6 +210,16 @@ python src/build_app.py --provider gemini --feedback "make the answer card large
 python src/build_app.py --provider gemini --feedback "<paste the error you got>"
 ```
 
+**Automatic test launch.** After the model writes the file, `build_app.py` starts the app with a stand-in agent
+(no API calls). If it fails, for example because the model used an argument name from an older Gradio, the error is
+sent back to the model to fix, up to `--max-fixes` times (default 2). Use `--no-verify` to skip it. This is why a
+fresh build should start without errors; if it still fails, rerun with `--feedback` and paste the error.
+
+**Where the files live.** In Colab the generated files are saved in the temporary session storage, at
+`/content/basketballm/src/app_openai.py` (and `app_gemini.py`). They disappear when the session ends and are not in
+GitHub. Download them from the file browser, copy them to Drive, or upload them to the repo. Each `--feedback` run
+overwrites the file, so copy it first if you want to keep a version (`!cp src/app_openai.py src/app_openai_v1.py`).
+
 Tips: a stronger model usually writes better code (`--model`, see `list_models.py`); generating one app per
 provider and comparing them is a nice small experiment; and the feedback loop works for errors too, so paste the
 traceback back in. **Read the generated file before you run it**: it runs with your API keys in the environment.

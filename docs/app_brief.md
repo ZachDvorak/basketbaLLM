@@ -46,8 +46,10 @@ agent.db.coverage()   # str: one or two sentences describing the data's seasons 
 
 ## Technical constraints
 
-- One Python file, using Gradio (already installed; code for the installed version is below). Use only APIs that
-  exist in that version.
+- One Python file, using Gradio (already installed; the installed version is given below). Gradio's API changes
+  between major versions (arguments get renamed or moved, for example from the `Blocks(...)` constructor to
+  `launch()`), so use only calls you are sure exist in that exact version, and prefer simple, well-established
+  ones over clever ones. The file is test-launched automatically, and any error is sent back to you to fix.
 - Launch with `share=True` so it works in Google Colab, and put the launch call under `if __name__ == "__main__":`.
 - No other third-party packages. No `eval`, `exec`, `subprocess`, `os.system`, file writes, or network calls of
   your own. Everything goes through `NBAAgent`.
