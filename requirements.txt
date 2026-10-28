@@ -4,3 +4,4 @@ duckdb>=1.0
 pandas
 gradio
 pytest
+matplotlib

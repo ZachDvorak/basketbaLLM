@@ -69,6 +69,7 @@ results, which is what makes the answers checkable.
 | Data layer | `src/db.py`, `src/schema.py` | Loads the CSVs into DuckDB, defines the clean views, guards SQL |
 | Data checks | `src/check_data.py`, `src/inspect_csvs.py` | Confirm the files and views work; look inside the CSVs |
 | Agent | `src/agent.py` | System prompt, two tools, and the question-to-answer flow |
+| Charts | `src/charts.py` | Turns the agent's chart requests into matplotlib figures and PNG files |
 | LLM layer | `src/llm.py` | One tool-calling loop each for OpenAI (Responses API) and Gemini (`google-genai`), with retry on rate limits |
 | Models | `src/list_models.py` | Lists the models your API keys can use |
 | Eval | `src/evaluate.py`, `eval/questions.csv` | 42 questions with gold SQL (28 dev, 14 held-out test); automatic + LLM-judge grading |
@@ -209,6 +210,17 @@ python src/app_generated.py                                  # launch it (prints
 python src/build_app.py --provider gemini --feedback "make the answer card larger and use a darker theme"
 python src/build_app.py --provider gemini --feedback "<paste the error you got>"
 ```
+
+**Model choice.** `build_app.py` picks the model for you: the newest full-size GPT model your OpenAI key can use
+(never `-mini`, `-nano`, `-pro`, `-codex`, audio or image models), or the newest stable Gemini `flash` model (`pro`
+models usually need a paid plan). It prints what it chose. `python src/list_models.py` shows the same suggestion.
+Override with `--model <name>`.
+
+**Graphics.** People can ask for a chart in words ("chart Curry's scoring from 2014-15 to 2017-18"), and the app brief
+also asks the model to add an "Include a chart" option. Behind it, the agent has a third tool, `make_chart`: it first
+runs a query that returns the columns to plot, then picks a bar, line or scatter chart (`src/charts.py`). A chart can
+only be drawn from the agent's own query results, so every plotted number still comes from the data. The interface
+shows charts with `charts.render_chart` or `charts.to_png` (downloadable PNG).
 
 **Automatic fixes.** If the model's reply is not valid Python, it is sent back to the model to correct (the existing
 file is never overwritten by a broken reply). Small models such as the `-mini` ones sometimes fail on long files;

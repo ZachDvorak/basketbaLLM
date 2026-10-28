@@ -7,7 +7,7 @@ If a provider fails, this prints what went wrong in plain words (and the raw err
 import os
 import sys
 
-from llm import gemini_api_key
+from llm import gemini_api_key, pick_best_model
 
 
 def explain(exc, provider):
@@ -30,12 +30,22 @@ def explain(exc, provider):
     return f"{provider} failed.\n  {text}" + (f"\n  Hint: {hint}" if hint else "")
 
 
+def suggest(provider, ids):
+    best = pick_best_model(provider, ids)
+    if best:
+        print(f"Suggested for building the app (build_app.py picks this automatically): {best}")
+    else:
+        print("No suggestion: pass --model to build_app.py with a model from the list above.")
+
+
 def list_openai():
     from openai import OpenAI
 
+    ids = sorted(m.id for m in OpenAI().models.list())
     print("OpenAI models:")
-    for name in sorted(m.id for m in OpenAI().models.list()):
+    for name in ids:
         print("  ", name)
+    suggest("openai", ids)
 
 
 def list_gemini():
@@ -54,9 +64,10 @@ def list_gemini():
         print(f"Gemini models ({len(models)}; this SDK version did not say which support generateContent, "
               "so pick one named gemini-*):")
         shown = models
-    for name in names(shown):
-        if name:
-            print("  ", name)
+    listed = [name for name in names(shown) if name]
+    for name in listed:
+        print("  ", name)
+    suggest("gemini", listed)
 
 
 def main():

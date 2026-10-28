@@ -5,6 +5,7 @@ where `tools` maps a tool name to a plain Python function that returns a string.
 """
 import json
 import os
+import re
 import time
 
 # Starting points only. Model names change often: run `python src/list_models.py` to see what your key can use,
@@ -28,6 +29,26 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {"sql": {"type": "string", "description": "A single SELECT (or WITH ... SELECT) statement."}},
             "required": ["sql"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "make_chart",
+        "description": ("Draw a chart from the rows of the MOST RECENT successful run_sql result. Run a query that "
+                        "returns exactly the columns to plot first (text labels such as season_label for x, a "
+                        "numeric column for y). The chart is shown to the user next to your answer."),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["bar", "line", "scatter"],
+                         "description": "bar to compare categories, line for change over seasons, scatter for two numbers"},
+                "title": {"type": "string", "description": "A short descriptive chart title."},
+                "x": {"type": "string", "description": "Column for the horizontal axis."},
+                "y": {"type": "string", "description": "Numeric column to plot."},
+                "series": {"type": "string",
+                           "description": "Column that splits the data into colored series (for example player), or an empty string for one series."},
+            },
+            "required": ["kind", "title", "x", "y", "series"],
             "additionalProperties": False,
         },
     },
@@ -102,7 +123,20 @@ def gemini_functions(tools):
         """
         return tools["run_sql"](sql=sql)
 
-    return [get_schema, run_sql]
+    def make_chart(kind: str, title: str, x: str, y: str, series: str = "") -> str:
+        """Draw a chart from the rows of the MOST RECENT successful run_sql result. Run a query that returns exactly
+        the columns to plot first (text labels such as season_label for x, a numeric column for y).
+
+        Args:
+            kind: "bar" to compare categories, "line" for change over seasons, "scatter" for two numbers.
+            title: A short descriptive chart title.
+            x: Column for the horizontal axis.
+            y: Numeric column to plot.
+            series: Column that splits the data into colored series (for example player), or an empty string.
+        """
+        return tools["make_chart"](kind=kind, title=title, x=x, y=y, series=series)
+
+    return [get_schema, run_sql, make_chart]
 
 
 class GeminiBackend:
@@ -130,6 +164,40 @@ class GeminiBackend:
     def complete(self, prompt):
         resp = with_retry(lambda: self.client.models.generate_content(model=self.model, contents=prompt))
         return (resp.text or "").strip()
+
+
+def available_models(provider):
+    """Model ids the current API key can use (text-generation models for Gemini)."""
+    if provider == "openai":
+        from openai import OpenAI
+
+        return sorted(m.id for m in OpenAI().models.list())
+    from google import genai
+
+    models = list(genai.Client(api_key=gemini_api_key()).models.list())
+    usable = [m for m in models if "generateContent" in (getattr(m, "supported_actions", None) or [])] or models
+    return sorted((getattr(m, "name", None) or "").removeprefix("models/") for m in usable)
+
+
+def pick_best_model(provider, ids):
+    """Choose the model to write code with from a list of ids, or None if nothing suitable is listed.
+
+    Only plain base names are considered, which leaves out mini/nano/pro/codex, audio, image and embedding models,
+    dated snapshots and '-latest' aliases.
+    OpenAI: the newest full-size GPT model (gpt-5.1 beats gpt-5, which beats gpt-4.1).
+    Gemini: the newest stable 'flash' model. 'pro' models usually need a paid plan, so use --model for those."""
+    pattern = r"gpt-(\d+)(?:\.(\d+))?" if provider == "openai" else r"gemini-(\d+)(?:\.(\d+))?-flash"
+    versions = {}
+    for model_id in ids:
+        match = re.fullmatch(pattern, model_id)
+        if match:
+            versions[model_id] = (int(match.group(1)), int(match.group(2) or 0))
+    return max(versions, key=versions.get) if versions else None
+
+
+def best_model(provider):
+    """Ask the provider which models this key can use and pick one (see pick_best_model)."""
+    return pick_best_model(provider, available_models(provider))
 
 
 BACKENDS = {"openai": OpenAIBackend, "gemini": GeminiBackend}

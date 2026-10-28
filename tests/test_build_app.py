@@ -13,6 +13,11 @@ import build_app  # noqa: E402
 GOOD = "Here you go:\n```python\nfrom agent import NBAAgent\nprint('hi')\n```\nEnjoy!"
 
 
+@pytest.fixture(autouse=True)
+def no_network_model_lookup(monkeypatch):
+    monkeypatch.setattr(build_app, "best_model", lambda provider: "picked-model")
+
+
 class FakeBackend:
     name, model = "fake", "fake-1"
 
@@ -218,3 +223,39 @@ def test_syntax_error_then_launch_error_then_success(gradio_installed, monkeypat
     monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(out), "--max-fixes", "2"])
     build_app.main()
     assert len(backend.prompts) == 3 and "_js" not in out.read_text()
+
+
+def test_best_model_is_chosen_automatically_but_never_over_an_explicit_model(monkeypatch, tmp_path):
+    chosen = []
+    monkeypatch.setattr(build_app, "make_backend", lambda provider, model: chosen.append(model) or FakeBackend(GOOD))
+    for extra in ([], ["--model", "my-model"]):
+        monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(tmp_path / "a.py"),
+                                          "--no-verify", *extra])
+        build_app.main()
+    assert chosen == ["picked-model", "my-model"]
+
+
+def test_model_listing_failure_falls_back_to_the_default(monkeypatch, tmp_path, capsys):
+    def boom(provider):
+        raise RuntimeError("no key")
+
+    chosen = []
+    monkeypatch.setattr(build_app, "best_model", boom)
+    monkeypatch.setattr(build_app, "make_backend", lambda provider, model: chosen.append(model) or FakeBackend(GOOD))
+    monkeypatch.setattr(sys, "argv", ["build_app", "--provider", "openai", "--out", str(tmp_path / "a.py"), "--no-verify"])
+    build_app.main()
+    assert chosen == [None] and "Could not list models" in capsys.readouterr().out
+
+
+def test_brief_describes_charts():
+    brief = build_app.BRIEF.read_text()
+    for piece in ("result.charts", "want_chart=True", "render_chart", "to_png", "Include a chart"):
+        assert piece in brief
+
+
+def test_smoke_stub_exercises_charts(gradio_installed, tmp_path):
+    path = tmp_path / "chartapp.py"
+    path.write_text(GOOD_APP.replace("return agent.ask(question).answer",
+                                     "r = agent.ask(question, want_chart=True)\n    from charts import render_chart\n"
+                                     "    render_chart(r.charts[0])\n    return r.answer"))
+    assert build_app.smoke_test(path) == (True, "")

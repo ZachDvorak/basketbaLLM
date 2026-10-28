@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from agent import NBAAgent  # noqa: E402
 from db import NBADatabase  # noqa: E402
-from llm import OpenAIBackend, gemini_functions, with_retry  # noqa: E402
+from llm import OpenAIBackend, TOOL_SPECS, gemini_functions, pick_best_model, with_retry  # noqa: E402
 from make_fixture import make  # noqa: E402
 
 
@@ -76,14 +76,17 @@ def test_gemini_schema_is_generated_from_functions():
     decls = [types.FunctionDeclaration.from_callable(client=client, callable=f)
              for f in gemini_functions({"get_schema": lambda: "", "run_sql": lambda sql: ""})]
     names = {d.name: d for d in decls}
-    assert set(names) == {"get_schema", "run_sql"}
+    assert set(names) == {"get_schema", "run_sql", "make_chart"}
     assert "sql" in names["run_sql"].parameters.properties
     assert names["run_sql"].parameters.required == ["sql"]
+    assert names["make_chart"].parameters.required == ["kind", "title", "x", "y"]  # series is optional
 
 
 def test_gemini_functions_call_through():
-    fns = {f.__name__: f for f in gemini_functions({"get_schema": lambda: "S", "run_sql": lambda sql: f"ran {sql}"})}
+    fns = {f.__name__: f for f in gemini_functions({"get_schema": lambda: "S", "run_sql": lambda sql: f"ran {sql}",
+                                                    "make_chart": lambda **kw: f"chart {kw['kind']} {kw['series']!r}"})}
     assert fns["get_schema"]() == "S" and fns["run_sql"]("SELECT 1") == "ran SELECT 1"
+    assert fns["make_chart"]("bar", "t", "x", "y") == "chart bar ''"
 
 
 def test_retry_retries_rate_limits_then_gives_up(monkeypatch):
@@ -103,3 +106,27 @@ def test_retry_retries_rate_limits_then_gives_up(monkeypatch):
 
     with pytest.raises(Exception):
         with_retry(fatal)
+
+
+def test_openai_strict_tool_specs_are_valid():
+    """OpenAI strict mode needs every property listed as required and additionalProperties false."""
+    for spec in TOOL_SPECS:
+        params = spec["parameters"]
+        assert params["additionalProperties"] is False
+        assert set(params["required"]) == set(params["properties"]), spec["name"]
+
+
+def test_pick_best_openai_model_takes_newest_full_size_text_model():
+    ids = ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-5", "gpt-5-2025-08-07", "gpt-5-chat-latest", "gpt-5-codex",
+           "gpt-5-mini", "gpt-5-nano", "gpt-5-pro", "gpt-5.1", "gpt-5.1-codex", "gpt-image-1", "gpt-realtime",
+           "o3", "text-embedding-3-large", "tts-1", "whisper-1"]
+    assert pick_best_model("openai", ids) == "gpt-5.1"
+    assert pick_best_model("openai", [i for i in ids if i != "gpt-5.1"]) == "gpt-5"
+    assert pick_best_model("openai", ["gpt-5-mini", "o3", "whisper-1"]) is None
+
+
+def test_pick_best_gemini_model_takes_newest_stable_flash():
+    ids = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-image",
+           "gemini-2.5-pro", "gemini-3-pro-preview", "gemini-flash-latest", "gemini-embedding-001"]
+    assert pick_best_model("gemini", ids) == "gemini-2.5-flash"
+    assert pick_best_model("gemini", ["gemini-2.5-pro"]) is None

@@ -19,7 +19,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from llm import make_backend
+from llm import best_model, make_backend
 
 ROOT = Path(__file__).resolve().parent.parent
 BRIEF = ROOT / "docs" / "app_brief.md"
@@ -62,15 +62,18 @@ def risky_lines(code):
 SMOKE = r"""
 import runpy, sys, types
 stub = types.ModuleType("agent")
+from charts import ChartSpec
 class _Result:
     answer, queries, errors = "A test answer.", ["SELECT 1"], 0
+    charts = [ChartSpec("bar", "Test chart", "season_label", "ppg", columns=["season_label", "ppg"],
+                        rows=[("2022-23", 25.0), ("2023-24", 27.5)])]
 class _Db:
     def coverage(self):
         return "Seasons 1946-47 through 2025-26."
 class NBAAgent:
     def __init__(self, *args, **kwargs):
         self.db = _Db()
-    def ask(self, question):
+    def ask(self, question, want_chart=False):
         return _Result()
 stub.NBAAgent, stub.AgentResult = NBAAgent, _Result
 sys.modules["agent"] = stub
@@ -122,7 +125,7 @@ def generate(backend, prompt):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--provider", choices=["openai", "gemini"], required=True)
-    parser.add_argument("--model", help="a stronger model usually writes better code (see src/list_models.py)")
+    parser.add_argument("--model", help="default: the strongest suitable model your key can use (see src/list_models.py)")
     parser.add_argument("--out", default=str(ROOT / "src" / "app_generated.py"))
     parser.add_argument("--from", dest="source", help="file to revise (default: --out if it exists)")
     parser.add_argument("--feedback", help="what to change, or paste the error from launching")
@@ -140,7 +143,15 @@ def main():
         sys.exit(f"--feedback needs an earlier version to revise, but {previous_path} does not exist yet. "
                  "Run once without --feedback first.")
 
-    backend = make_backend(args.provider, args.model)
+    model = args.model
+    if model is None:  # bigger models write much more reliable code than the -mini default
+        try:
+            model = best_model(args.provider)
+            print(f"Chose {args.provider}/{model} as the strongest suitable model your key can use "
+                  "(override with --model).")
+        except Exception as exc:
+            print(f"Could not list models ({type(exc).__name__}); using the default model.")
+    backend = make_backend(args.provider, model)
     print(f"Asking {backend.name}/{backend.model} to {'revise' if previous else 'write'} the interface...")
     brief, baseline = BRIEF.read_text(), BASELINE.read_text()
     prompt = build_prompt(brief, baseline, previous, args.feedback)

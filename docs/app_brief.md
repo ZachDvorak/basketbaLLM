@@ -17,8 +17,19 @@ result.answer    # str: the plain-English answer (may contain markdown)
 result.queries   # list[str]: every SQL query the agent ran, in order
 result.errors    # int: how many of those queries failed (the agent retries, so this is informational)
 
+result.charts    # list of ChartSpec: charts the agent drew from its own query results (often empty)
+
+agent.ask(question, want_chart=True)   # same, but tells the agent to include a chart of the result
+
 agent.db.coverage()   # str: one or two sentences describing the data's seasons and limits
+
+from charts import render_chart, to_png
+fig = render_chart(spec)   # a matplotlib Figure (gr.Plot(fig) shows it); raises ValueError if it cannot be drawn
+path = to_png(spec)        # path of a temporary PNG file (gr.Image(path) shows it and offers a download)
 ```
+
+Charts are drawn only from the agent's query results, so every plotted number comes from the data. The user can
+also ask in words ("chart Curry's scoring from 2014-15 to 2017-18") and the agent will draw one without any option.
 
 - `ask()` takes roughly 5 to 60 seconds and is stateless (each question is independent, so there is no chat memory).
 - `ask()` can raise exceptions (bad API key, rate limit, network). Catch them and show a short, friendly message.
@@ -39,10 +50,14 @@ agent.db.coverage()   # str: one or two sentences describing the data's seasons 
    - Which team had the best record in 2015-16?
    - Who has the most career three-pointers made in the NBA?
    - Who won Rookie of the Year in 2023-24?
+   - Chart Stephen Curry's points per game from 2014-15 to 2017-18.
    - How many points did Michael Jordan score in the 1993 NBA Finals?
 7. A short note showing `agent.db.coverage()` so users know what the data covers.
 8. A history of the questions asked in this session, so users can scroll back (the agent itself has no memory).
-9. It must work on a phone-sized screen too.
+9. A graphics option, for example a toggle or checkbox labelled "Include a chart", that calls
+   `ask(question, want_chart=True)`. Show every chart in `result.charts` with the answer, and let the user download
+   each as a PNG (`to_png`). If a chart cannot be drawn, show the answer anyway with a short note.
+10. It must work on a phone-sized screen too.
 
 ## Technical constraints
 
